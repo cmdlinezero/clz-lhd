@@ -1,5 +1,11 @@
 # CLZ Local Host Development (LHD)
 
+![Beta](https://img.shields.io/badge/Release%20Status-Beta-red)
+![Tag](https://img.shields.io/github/v/tag/cmdlinezero/clz-lhd?label=Tag)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](/LICENSE)
+![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white)
+![Platforms](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20MacOS-green)
+
 A simple tool to help developers who need to map to multiple ports on their local host.
 
 ## Getting Started 
