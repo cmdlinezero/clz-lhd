@@ -1,4 +1,4 @@
-module clz-lhd
+module github.com/cmdlinezero/clz-lhd
 
 go 1.25.5
 

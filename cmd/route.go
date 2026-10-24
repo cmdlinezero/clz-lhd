@@ -1,8 +1,7 @@
 package cmd
 
 import (
-	"clz-lhd/internal/proxy"
-	_ "fmt"
+	"github.com/cmdlinezero/clz-lhd/internal/proxy"
 	"log"
 	"net/http"
 	"strings"
