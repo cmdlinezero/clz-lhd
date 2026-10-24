@@ -4,8 +4,11 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"testing"
+
+	"github.com/cmdlinezero/clz-lhd/internal/config"
 
 	clientmodel "github.com/prometheus/client_model/go"
 )
@@ -18,7 +21,7 @@ func TestRouterRoutesKnownHost(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	router := NewRouter(map[string]string{"app.localhost": upstream.URL})
+	router := NewRouter([]config.Route{testRoute(t, "app.localhost", upstream.URL)})
 	recorder := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "http://app.localhost/hello", nil)
 
@@ -48,9 +51,9 @@ func TestRouterRoutesMultipleHosts(t *testing.T) {
 	}))
 	defer second.Close()
 
-	router := NewRouter(map[string]string{
-		"first.localhost":  first.URL,
-		"second.localhost": second.URL,
+	router := NewRouter([]config.Route{
+		testRoute(t, "first.localhost", first.URL),
+		testRoute(t, "second.localhost", second.URL),
 	})
 
 	for _, tc := range []struct {
@@ -80,7 +83,7 @@ func TestRouterIgnoresPortInHostHeader(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	router := NewRouter(map[string]string{"app.localhost": upstream.URL})
+	router := NewRouter([]config.Route{testRoute(t, "app.localhost", upstream.URL)})
 	recorder := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "http://app.localhost:8080/", nil)
 
@@ -94,7 +97,7 @@ func TestRouterIgnoresPortInHostHeader(t *testing.T) {
 func TestRouterRejectsUnknownHost(t *testing.T) {
 	t.Parallel()
 
-	router := NewRouter(map[string]string{"app.localhost": "8080"})
+	router := NewRouter([]config.Route{testRoute(t, "app.localhost", "http://localhost:8080")})
 	recorder := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "http://unknown.localhost/", nil)
 
@@ -117,7 +120,7 @@ func TestRouterRecordsActualUpstreamStatus(t *testing.T) {
 			counter := HttpRequestsTotal.WithLabelValues(host, strconv.Itoa(status))
 			before := counterValue(t, counter)
 
-			router := NewRouter(map[string]string{host: upstream.URL})
+			router := NewRouter([]config.Route{testRoute(t, host, upstream.URL)})
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, "http://"+host+"/", nil)
 			router.ServeHTTP(recorder, req)
@@ -130,6 +133,15 @@ func TestRouterRecordsActualUpstreamStatus(t *testing.T) {
 			}
 		})
 	}
+}
+
+func testRoute(t *testing.T, host, target string) config.Route {
+	t.Helper()
+	targetURL, err := url.Parse(target)
+	if err != nil {
+		t.Fatalf("url.Parse(%q): %v", target, err)
+	}
+	return config.Route{Host: host, Target: targetURL}
 }
 
 type prometheusMetric interface {

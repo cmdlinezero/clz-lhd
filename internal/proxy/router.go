@@ -1,37 +1,39 @@
 package proxy
 
 import (
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/cmdlinezero/clz-lhd/internal/config"
 )
 
 // Router proxies requests according to their Host header.
 type Router struct {
-	routes map[string]string
+	routes map[string]config.Route
 }
 
-// NewRouter creates a router for host=target mappings. Targets without an HTTP
-// scheme are treated as local ports.
-func NewRouter(routes map[string]string) *Router {
-	return &Router{routes: routes}
+// NewRouter creates a router from validated routes.
+func NewRouter(routes []config.Route) *Router {
+	byHost := make(map[string]config.Route, len(routes))
+	for _, route := range routes {
+		byHost[route.Host] = route
+	}
+	return &Router{routes: byHost}
 }
 
 func (router *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	host := strings.Split(r.Host, ":")[0]
+	host := requestHost(r.Host)
 
-	target, ok := router.routes[host]
+	route, ok := router.routes[host]
 	if !ok {
 		http.Error(w, "Proxy: Host not configured", http.StatusNotFound)
 		return
 	}
 
-	if !strings.HasPrefix(target, "http") {
-		target = "http://localhost:" + target
-	}
-
-	p, err := NewReverseProxy(target)
+	p, err := NewReverseProxy(route.Target.String())
 	if err != nil {
 		http.Error(w, "Proxy: Invalid target", http.StatusBadGateway)
 		return
@@ -41,8 +43,16 @@ func (router *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	statusWriter := &statusResponseWriter{ResponseWriter: w}
 	p.ServeHTTP(statusWriter, r)
 
-	HttpRequestDuration.WithLabelValues(host).Observe(time.Since(start).Seconds())
-	HttpRequestsTotal.WithLabelValues(host, statusWriter.statusCode()).Inc()
+	HttpRequestDuration.WithLabelValues(route.Host).Observe(time.Since(start).Seconds())
+	HttpRequestsTotal.WithLabelValues(route.Host, statusWriter.statusCode()).Inc()
+}
+
+func requestHost(hostport string) string {
+	host, _, err := net.SplitHostPort(hostport)
+	if err != nil {
+		host = hostport
+	}
+	return strings.TrimSuffix(strings.ToLower(host), ".")
 }
 
 type statusResponseWriter struct {
