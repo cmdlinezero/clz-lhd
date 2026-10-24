@@ -1,6 +1,6 @@
 package main
 
-import "clz-lhd/cmd"
+import "github.com/cmdlinezero/clz-lhd/cmd"
 
 func main() {
 	cmd.Execute()

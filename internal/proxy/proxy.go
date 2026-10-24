@@ -4,8 +4,6 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	_ "strings"
-	_ "time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -30,7 +28,7 @@ func NewReverseProxy(target string) (*httputil.ReverseProxy, error) {
 		return nil, err
 	}
 	proxy := httputil.NewSingleHostReverseProxy(url)
-	
+
 	// Optional: Customize transport for local dev performance
 	proxy.Transport = &http.Transport{
 		MaxIdleConnsPerHost: 100,

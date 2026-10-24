@@ -1,63 +1,94 @@
 #!/usr/bin/env bash
 
-DEFAULT_PORT=8080
+set -euo pipefail
 
-# Generate random Docker-like name
+DEFAULT_PORT=8088
+
+PORT="${1:-$DEFAULT_PORT}"
+
+# Docker-style random session names
+# ADJECTIVES=(
+#     admiring bold clever eager festive focused
+#     gifted happy kind lucid nifty quirky
+#     relaxed serene stoic vibrant wonderful zealous
+# )
+#
+# NAMES=(
+#     babbage berners_lee dijkstra hopper knuth
+#     lovelace mccarthy ritchie shannon stallman
+#     thompson torvalds turing von_neumann wozniak
+# )
+
+random_item() {
+    local -n array=$1
+    printf '%s' "${array[RANDOM % ${#array[@]}]}"
+}
+
+
 generate_session_name() {
-  ADJECTIVES=(happy brave calm eager fancy gentle jolly kind lucky nice proud quick shiny witty bold clever)
-  NOUNS=(tiger panda eagle otter fox whale lion falcon wolf bear koala shark)
+  local adjectives=(
+    happy brave calm eager fancy gentle jolly kind
+    lucky nice proud quick shiny witty bold clever
+  )
 
-  adj=${ADJECTIVES[$RANDOM % ${#ADJECTIVES[@]}]}
-  noun=${NOUNS[$RANDOM % ${#NOUNS[@]}]}
+  local nouns=(
+    tiger panda eagle otter fox whale lion falcon
+    wolf bear koala shark
+  )
+
+  local adj="${adjectives[RANDOM % ${#adjectives[@]}]}"
+  local noun="${nouns[RANDOM % ${#nouns[@]}]}"
+
   echo "${adj}-${noun}-dev"
 }
 
-# Check if port is in use
-port_in_use() {
-  lsof -i :"$1" >/dev/null 2>&1
-}
+if [[ -n "${2:-}" ]]; then
+    SESSION="$2"
+else
+    SESSION="$(generate_session_name)"
 
-# Find next available port
-find_free_port() {
-  local port=$1
-  while port_in_use "$port"; do
-    echo "Port $port is in use, trying $((port + 1))..."
-    port=$((port + 1))
-  done
-  echo "$port"
-}
-
-# Args
-REQUESTED_PORT=${1:-$DEFAULT_PORT}
-SESSION=${2:-$(generate_session_name)}
-
-# Resolve port
-PORT=$(find_free_port "$REQUESTED_PORT")
+    # Avoid collisions with existing sessions.
+    while tmux has-session -t "$SESSION" 2>/dev/null; do
+        SESSION="$(generate_session_name)"
+    done
+fi
 
 echo "Using PORT=$PORT"
 echo "Using SESSION=$SESSION"
 
+
+# -----------------------------------------------------------------------------
+# Attach to an existing session
+# -----------------------------------------------------------------------------
+
 # Check if the session already exists
-tmux has-session -t "$SESSION" 2>/dev/null
+if ! tmux has-session -t "$SESSION" 2>/dev/null; then
 
+    # -----------------------------------------------------------------------------
+    # Create session
+    # -----------------------------------------------------------------------------
+    tmux new-session -d -s "$SESSION" "zsh -i"
 
-if [ $? != 0 ]; then
-  tmux new-session -d -s "$SESSION"
-  tmux split-window -h -t "$SESSION"
-  tmux split-window -v -t "$SESSION"
+    tmux split-window \
+        -h \
+        -t "$SESSION" \
+        "hugo server -D -p $PORT --disableFastRender --cleanDestinationDir; exec zsh -i"
 
-  tmux send-keys -t "$SESSION":0 
+    tmux split-window \
+        -v \
+        -t "$SESSION:0.0" \
+        "zsh -i"
+
+    tmux select-layout -t "$SESSION:0" main-vertical
+    tmux select-pane -t "$SESSION:0.0"
+
+    tmux send-keys \
+        -t "$SESSION:0.0" \
+        "hugo version; tree -L 2" \
+        C-m
 fi
 
-# Hugo Example retry
-# if [ $? != 0 ]; then
-#   tmux new-session -d -s "$SESSION"
-#   tmux split-window -h -t "$SESSION"
-#   tmux split-window -v -t "$SESSION"
-# 
-#   tmux send-keys -t "$SESSION":0 
-#   tmux send-keys -t "$SESSION":0 \
-#   "until hugo serve -D -p $PORT; do echo 'Command failed. Press Enter to retry...'; read; done" C-m
-# fi
-
-tmux attach-session -t "$SESSION"
+# -----------------------------------------------------------------------------
+# Attach
+# -----------------------------------------------------------------------------
+exec tmux attach-session -t "$SESSION"
