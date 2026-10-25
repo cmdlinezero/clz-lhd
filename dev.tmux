@@ -72,7 +72,7 @@ if ! tmux has-session -t "$SESSION" 2>/dev/null; then
     tmux split-window \
         -h \
         -t "$SESSION" \
-        "hugo server -D -p $PORT --disableFastRender --cleanDestinationDir; exec zsh -i"
+        "go version; exec zsh -i"
 
     tmux split-window \
         -v \
@@ -84,8 +84,15 @@ if ! tmux has-session -t "$SESSION" 2>/dev/null; then
 
     tmux send-keys \
         -t "$SESSION:0.0" \
-        "hugo version; tree -L 2" \
+        "tree -L 2" \
         C-m
+fi
+
+# -----------------------------------------------------------------------------
+# If TMPDIR points to a stale nix-shell folder, fall back to /tmp
+# -----------------------------------------------------------------------------
+if [ ! -d "$TMPDIR" ]; then
+   export TMPDIR="/tmp"
 fi
 
 # -----------------------------------------------------------------------------
