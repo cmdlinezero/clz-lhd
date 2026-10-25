@@ -14,6 +14,8 @@ var rootCmd = &cobra.Command{
 	Long: `clz-lhd is a CLI tool designed to simplify local host development (LHD) by 
 mapping custom local domains (like api.localhost) to specific internal ports, 
 complete with built-in Prometheus metrics and an admin dashboard.`,
+	SilenceErrors: true,
+	SilenceUsage:  true,
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
