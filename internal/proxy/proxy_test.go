@@ -33,6 +33,12 @@ func TestNewReverseProxyForwardsRequest(t *testing.T) {
 		if got, want := r.Header.Get("X-Test"), "proxy"; got != want {
 			t.Errorf("upstream X-Test header = %q, want %q", got, want)
 		}
+		if got, want := r.Header.Get("X-Forwarded-Host"), "app.localhost"; got != want {
+			t.Errorf("upstream X-Forwarded-Host = %q, want %q", got, want)
+		}
+		if got, want := r.Header.Get("X-Forwarded-Proto"), "http"; got != want {
+			t.Errorf("upstream X-Forwarded-Proto = %q, want %q", got, want)
+		}
 
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -91,5 +97,29 @@ func TestNewReverseProxyUsesLocalDevelopmentTransport(t *testing.T) {
 	}
 	if got, want := transport.MaxIdleConnsPerHost, 100; got != want {
 		t.Errorf("MaxIdleConnsPerHost = %d, want %d", got, want)
+	}
+}
+
+func TestNewReverseProxyReturnsBadGatewayForUnavailableUpstream(t *testing.T) {
+	t.Parallel()
+
+	listener := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	target := listener.URL
+	listener.Close()
+
+	proxy, err := NewReverseProxy(target)
+	if err != nil {
+		t.Fatalf("NewReverseProxy() error = %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "http://app.localhost/", nil)
+	proxy.ServeHTTP(recorder, req)
+
+	if got, want := recorder.Code, http.StatusBadGateway; got != want {
+		t.Errorf("status = %d, want %d", got, want)
+	}
+	if got, want := recorder.Body.String(), "Proxy: upstream unavailable\n"; got != want {
+		t.Errorf("body = %q, want %q", got, want)
 	}
 }

@@ -157,3 +157,25 @@ func counterValue(t *testing.T, metric prometheusMetric) float64 {
 	}
 	return value.GetCounter().GetValue()
 }
+
+func TestRouterRecordsBadGatewayForUnavailableUpstream(t *testing.T) {
+	listener := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	target := listener.URL
+	listener.Close()
+
+	host := "unavailable.localhost"
+	counter := HttpRequestsTotal.WithLabelValues(host, strconv.Itoa(http.StatusBadGateway))
+	before := counterValue(t, counter)
+
+	router := NewRouter([]config.Route{testRoute(t, host, target)})
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "http://"+host+"/", nil)
+	router.ServeHTTP(recorder, req)
+
+	if got, want := recorder.Code, http.StatusBadGateway; got != want {
+		t.Fatalf("status = %d, want %d", got, want)
+	}
+	if got, want := counterValue(t, counter), before+1; got != want {
+		t.Errorf("request counter = %v, want %v", got, want)
+	}
+}
