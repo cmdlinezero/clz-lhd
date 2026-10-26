@@ -28,10 +28,28 @@ func NewReverseProxy(target string) (*httputil.ReverseProxy, error) {
 		return nil, err
 	}
 	proxy := httputil.NewSingleHostReverseProxy(url)
+	director := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		originalHost := req.Host
+		originalProto := requestScheme(req)
+		director(req)
+		req.Header.Set("X-Forwarded-Host", originalHost)
+		req.Header.Set("X-Forwarded-Proto", originalProto)
+	}
+	proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, _ error) {
+		http.Error(w, "Proxy: upstream unavailable", http.StatusBadGateway)
+	}
 
 	// Optional: Customize transport for local dev performance
 	proxy.Transport = &http.Transport{
 		MaxIdleConnsPerHost: 100,
 	}
 	return proxy, nil
+}
+
+func requestScheme(req *http.Request) string {
+	if req.TLS != nil {
+		return "https"
+	}
+	return "http"
 }
