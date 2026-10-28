@@ -95,3 +95,22 @@ func TestLoadFileReportsPath(t *testing.T) {
 		t.Errorf("error %q does not contain path %q", err, path)
 	}
 }
+
+func TestDecodeFileSortsRoutesByNormalizedHost(t *testing.T) {
+	routes, err := DecodeFile(strings.NewReader(`
+routes:
+  ZETA.LOCALHOST: "3000"
+  api.localhost: "4000"
+  App.localhost.: "5000"
+`))
+	if err != nil {
+		t.Fatalf("DecodeFile() error = %v", err)
+	}
+
+	want := []string{"api.localhost", "app.localhost", "zeta.localhost"}
+	for i, route := range routes {
+		if route.Host != want[i] {
+			t.Fatalf("routes[%d].Host = %q, want %q", i, route.Host, want[i])
+		}
+	}
+}

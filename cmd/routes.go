@@ -12,6 +12,7 @@ import (
 var routesCmd = &cobra.Command{
 	Use:   "routes",
 	Short: "Show configured routes",
+	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		configPath, _ := cmd.Flags().GetString("config")
 		routes, err := config.LoadFile(configPath)
