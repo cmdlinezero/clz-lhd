@@ -26,14 +26,13 @@ A simple tool to help developers who need to map to multiple ports on their loca
 ```
 clz-lhd is a CLI tool designed to simplify local host development (LHD) by
 mapping custom local domains (like api.localhost) to specific internal ports,
-complete with built-in Prometheus metrics and an admin dashboard.
+with built-in Prometheus metrics for local observability.
 
 Usage:
   clz-lhd [command]
 
 Available Commands:
   completion  Generate the autocompletion script for the specified shell
-  dash        Start proxy with Web UI dashboard
   help        Help about any command
   route       Start the proxy with host mappings
 
@@ -43,6 +42,16 @@ Flags:
 
 Use "clz-lhd [command] --help" for more information about a command.
 ```
+
+## Metrics
+
+While the proxy is running, Prometheus metrics are available at `http://localhost:<port>/metrics`.
+
+LHD exposes these application metrics:
+
+- `lhd_requests_total{host,status}` — total proxied requests, labelled by host and observed HTTP response status. Upstream connection failures are recorded as status `502`.
+- `lhd_request_duration_seconds{host}` — histogram of proxy request duration by host.
+- `lhd_requests_in_flight{host}` — requests currently being handled by host.
 
 (c) 2026 [cmdlinezero](https://cmdlinezero.dev)
 
