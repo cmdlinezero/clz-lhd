@@ -26,6 +26,9 @@ func NewRouter(routes []config.Route) *Router {
 
 func (router *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	host := requestHost(r.Host)
+	inFlight := HTTPRequestsInFlight.WithLabelValues(host)
+	inFlight.Inc()
+	defer inFlight.Dec()
 
 	route, ok := router.routes[host]
 	if !ok {
@@ -43,8 +46,8 @@ func (router *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	statusWriter := &statusResponseWriter{ResponseWriter: w}
 	p.ServeHTTP(statusWriter, r)
 
-	HttpRequestDuration.WithLabelValues(route.Host).Observe(time.Since(start).Seconds())
-	HttpRequestsTotal.WithLabelValues(route.Host, statusWriter.statusCode()).Inc()
+	HTTPRequestDuration.WithLabelValues(route.Host).Observe(time.Since(start).Seconds())
+	HTTPRequestsTotal.WithLabelValues(route.Host, statusWriter.statusCode()).Inc()
 }
 
 func requestHost(hostport string) string {

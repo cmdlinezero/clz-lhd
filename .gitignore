@@ -1,1 +1,6 @@
-clz-lhd
+# Build artifacts
+/clz-lhd
+
+# Local development archives and patches
+/*.patch
+/*.tar.gz
