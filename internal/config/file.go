@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 
 	"gopkg.in/yaml.v3"
 )
@@ -49,5 +50,8 @@ func DecodeFile(r io.Reader) ([]Route, error) {
 	if err != nil {
 		return nil, fmt.Errorf("validate routes: %w", err)
 	}
+	sort.Slice(routes, func(i, j int) bool {
+		return routes[i].Host < routes[j].Host
+	})
 	return routes, nil
 }

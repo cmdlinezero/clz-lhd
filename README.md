@@ -89,6 +89,8 @@ An `https://` target means LHD connects **to the upstream using HTTPS**. v0.2 do
 
 ## Commands
 
+Commands accept flags only; unexpected positional arguments are rejected.
+
 ### `up`
 
 Start the proxy using a configuration file. The default file is `lhd.yaml`.

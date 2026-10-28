@@ -8,6 +8,7 @@ import (
 var routeCmd = &cobra.Command{
 	Use:   "route",
 	Short: "Start the proxy with host mappings",
+	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		port, _ := cmd.Flags().GetString("port")
 		routeSpecs, _ := cmd.Flags().GetStringArray("route")
