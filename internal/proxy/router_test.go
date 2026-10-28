@@ -117,7 +117,7 @@ func TestRouterRecordsActualUpstreamStatus(t *testing.T) {
 			}))
 			defer upstream.Close()
 
-			counter := HttpRequestsTotal.WithLabelValues(host, strconv.Itoa(status))
+			counter := HTTPRequestsTotal.WithLabelValues(host, strconv.Itoa(status))
 			before := counterValue(t, counter)
 
 			router := NewRouter([]config.Route{testRoute(t, host, upstream.URL)})
@@ -164,7 +164,7 @@ func TestRouterRecordsBadGatewayForUnavailableUpstream(t *testing.T) {
 	listener.Close()
 
 	host := "unavailable.localhost"
-	counter := HttpRequestsTotal.WithLabelValues(host, strconv.Itoa(http.StatusBadGateway))
+	counter := HTTPRequestsTotal.WithLabelValues(host, strconv.Itoa(http.StatusBadGateway))
 	before := counterValue(t, counter)
 
 	router := NewRouter([]config.Route{testRoute(t, host, target)})
@@ -178,4 +178,64 @@ func TestRouterRecordsBadGatewayForUnavailableUpstream(t *testing.T) {
 	if got, want := counterValue(t, counter), before+1; got != want {
 		t.Errorf("request counter = %v, want %v", got, want)
 	}
+}
+
+func TestRouterTracksRequestsInFlight(t *testing.T) {
+	host := "in-flight.localhost"
+	started := make(chan struct{})
+	release := make(chan struct{})
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(started)
+		<-release
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+
+	gauge := HTTPRequestsInFlight.WithLabelValues(host)
+	before := gaugeValue(t, gauge)
+	router := NewRouter([]config.Route{testRoute(t, host, upstream.URL)})
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		recorder := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "http://"+host+"/", nil)
+		router.ServeHTTP(recorder, req)
+	}()
+
+	<-started
+	if got, want := gaugeValue(t, gauge), before+1; got != want {
+		t.Errorf("in-flight gauge while proxying = %v, want %v", got, want)
+	}
+
+	close(release)
+	<-done
+	if got, want := gaugeValue(t, gauge), before; got != want {
+		t.Errorf("in-flight gauge after request = %v, want %v", got, want)
+	}
+}
+
+func TestRouterTracksUnknownHostInFlight(t *testing.T) {
+	host := "unknown-in-flight.localhost"
+	gauge := HTTPRequestsInFlight.WithLabelValues(host)
+	before := gaugeValue(t, gauge)
+
+	router := NewRouter(nil)
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "http://"+host+"/", nil)
+	router.ServeHTTP(recorder, req)
+
+	if got, want := gaugeValue(t, gauge), before; got != want {
+		t.Errorf("in-flight gauge after unknown host = %v, want %v", got, want)
+	}
+}
+
+func gaugeValue(t *testing.T, metric prometheusMetric) float64 {
+	t.Helper()
+
+	var value clientmodel.Metric
+	if err := metric.Write(&value); err != nil {
+		t.Fatalf("writing metric: %v", err)
+	}
+	return value.GetGauge().GetValue()
 }

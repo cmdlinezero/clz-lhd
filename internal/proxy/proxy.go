@@ -10,15 +10,20 @@ import (
 )
 
 var (
-	HttpRequestsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "devproxy_requests_total",
+	HTTPRequestsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "lhd_requests_total",
 		Help: "Total requests by host",
 	}, []string{"host", "status"})
 
-	HttpRequestDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
-		Name:    "devproxy_duration_seconds",
-		Help:    "Latency in seconds",
+	HTTPRequestDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "lhd_request_duration_seconds",
+		Help:    "HTTP request duration in seconds",
 		Buckets: []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5},
+	}, []string{"host"})
+
+	HTTPRequestsInFlight = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "lhd_requests_in_flight",
+		Help: "Current HTTP requests by host",
 	}, []string{"host"})
 )
 
