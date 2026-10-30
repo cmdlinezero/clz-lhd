@@ -83,6 +83,35 @@ tls:
 
 Certificate and key paths are resolved relative to the configuration file. LHD loads and validates the pair before starting. It does not generate certificates or modify the system trust store; the files can come from mkcert, an internal CA, OpenSSL, or other certificate tooling.
 
+#### Generating development certificates
+
+LHD's TLS contract is deliberately simple: provide a PEM certificate and matching PEM private key. Certificate issuance and client trust remain the responsibility of the certificate tooling you choose.
+
+**mkcert** is a straightforward option for local development because it creates a local CA, can install that CA into supported trust stores, and can write the leaf certificate and key directly to paths used by LHD. Install and trust the mkcert CA once according to the [mkcert documentation](https://github.com/FiloSottile/mkcert), then from the directory containing `lhd.yaml` run:
+
+```bash
+mkdir -p .lhd
+mkcert -cert-file .lhd/cert.pem -key-file .lhd/key.pem "*.localhost" localhost
+```
+
+With the `tls` configuration above, no additional LHD-specific certificate setup is required. Keep private keys such as `.lhd/key.pem` out of source control. The repository `.gitignore` ignores the root `.lhd` directory for this reason.
+
+A certificate for `*.localhost` covers one hostname label beneath `.localhost`, such as `app.localhost` and `api.localhost`. It does not cover deeper names such as `api.dev.localhost`; include those names explicitly or use an appropriate certificate for the hostname structure you choose. `clz-lhd doctor` verifies the configured routes against the certificate.
+
+**Bring your own certificate** is equally supported. A development CA, corporate/internal PKI, OpenSSL-based workflow, or other tooling can provide the same PEM certificate/key pair. LHD does not require or detect a particular provider.
+
+**Caddy users:** Caddy has its own Local HTTPS architecture. For local/internal names it can operate a local CA, manage leaf certificates in its storage, and install its root CA into local trust stores when permitted. LHD does not depend on Caddy or reach into Caddy's managed certificate storage. If Caddy is already your HTTPS endpoint, it may be simpler to let Caddy own that responsibility; if your PKI independently provides portable PEM certificate/key files, LHD can consume them like any other certificate source. See Caddy's [Automatic HTTPS documentation](https://caddyserver.com/docs/automatic-https) for its supported model.
+
+##### Trust, validity, and hostname coverage
+
+These are separate concerns:
+
+- **Validity** — the certificate is within its `NotBefore`/`NotAfter` dates.
+- **Hostname coverage** — the certificate SANs cover each configured route hostname.
+- **Client trust** — the browser, operating system, runtime, or other client trusts the CA that issued the certificate.
+
+`clz-lhd doctor` checks the first two because they can be determined reliably from the supplied certificate. It reports issuer information to help identify the certificate source, but it does not assert client trust or modify trust stores. A certificate can therefore pass LHD diagnostics and still produce a browser warning when that browser does not trust its issuing CA.
+
 When `tls` is configured, LHD serves the same routes over both HTTP and HTTPS. HTTPS defaults to port `8443` and can be changed with `--tls-port`:
 
 ```bash
@@ -177,6 +206,14 @@ Use the global `--verbose` / `-v` flag for additional certificate diagnostics, i
 Certificate issuer information is diagnostic metadata only: it does **not** mean that the certificate is trusted by your operating system, browser, or other clients. LHD remains certificate-provider agnostic and does not inspect or modify client trust stores.
 
 The command exits non-zero when one or more diagnostics fail.
+
+For HTTPS troubleshooting, start with:
+
+```bash
+./clz-lhd doctor --verbose
+```
+
+If certificate validity and route coverage pass but a browser still reports an untrusted certificate, inspect the trust configuration for the certificate's issuing CA in that client. That trust decision is outside LHD's certificate-agnostic boundary.
 
 ### `route`
 
