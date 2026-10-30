@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/tls"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"testing"
 
@@ -93,5 +95,21 @@ func TestServeContextReportsTLSListenError(t *testing.T) {
 	incomingTLS := &tlsListenerConfig{Port: port, Certificate: tls.Certificate{}}
 	if err := serveContext(context.Background(), "0", nil, incomingTLS); err == nil {
 		t.Fatal("serveContext() error = nil, want HTTPS listen error")
+	}
+}
+
+func TestMetricsOnlyAvailableOnHTTPHandler(t *testing.T) {
+	httpRecorder := httptest.NewRecorder()
+	httpRequest := httptest.NewRequest(http.MethodGet, "http://localhost/metrics", nil)
+	newHTTPHandler(nil).ServeHTTP(httpRecorder, httpRequest)
+	if got, want := httpRecorder.Code, http.StatusOK; got != want {
+		t.Fatalf("HTTP /metrics status = %d, want %d", got, want)
+	}
+
+	httpsRecorder := httptest.NewRecorder()
+	httpsRequest := httptest.NewRequest(http.MethodGet, "https://localhost/metrics", nil)
+	newHTTPSHandler(nil).ServeHTTP(httpsRecorder, httpsRequest)
+	if got, want := httpsRecorder.Code, http.StatusNotFound; got != want {
+		t.Fatalf("HTTPS /metrics status = %d, want %d", got, want)
 	}
 }

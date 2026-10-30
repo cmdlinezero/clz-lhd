@@ -40,9 +40,8 @@ func serveTLS(port string, routes []config.Route, tlsConfig tlsListenerConfig) e
 }
 
 func serveContext(ctx context.Context, port string, routes []config.Route, incomingTLS *tlsListenerConfig) error {
-	mux := http.NewServeMux()
-	mux.Handle("/metrics", promhttp.Handler())
-	mux.Handle("/", proxy.NewRouter(routes))
+	httpHandler := newHTTPHandler(routes)
+	httpsHandler := newHTTPSHandler(routes)
 
 	httpListener, err := net.Listen("tcp", ":"+port)
 	if err != nil {
@@ -63,13 +62,13 @@ func serveContext(ctx context.Context, port string, routes []config.Route, incom
 		})
 	}
 
-	httpServer := &http.Server{Handler: mux}
+	httpServer := &http.Server{Handler: httpHandler}
 	servers := []*http.Server{httpServer}
 	serveErr := make(chan error, 2)
 	go func() { serveErr <- httpServer.Serve(httpListener) }()
 
 	if httpsListener != nil {
-		httpsServer := &http.Server{Handler: mux}
+		httpsServer := &http.Server{Handler: httpsHandler}
 		servers = append(servers, httpsServer)
 		go func() { serveErr <- httpsServer.Serve(httpsListener) }()
 	}
@@ -89,6 +88,17 @@ func serveContext(ctx context.Context, port string, routes []config.Route, incom
 		}
 		return nil
 	}
+}
+
+func newHTTPHandler(routes []config.Route) http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", promhttp.Handler())
+	mux.Handle("/", proxy.NewRouter(routes))
+	return mux
+}
+
+func newHTTPSHandler(routes []config.Route) http.Handler {
+	return proxy.NewRouter(routes)
 }
 
 func shutdownServers(servers []*http.Server) error {

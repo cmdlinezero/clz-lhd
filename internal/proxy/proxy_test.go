@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"crypto/tls"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -121,5 +122,32 @@ func TestNewReverseProxyReturnsBadGatewayForUnavailableUpstream(t *testing.T) {
 	}
 	if got, want := recorder.Body.String(), "Proxy: upstream unavailable\n"; got != want {
 		t.Errorf("body = %q, want %q", got, want)
+	}
+}
+
+func TestNewReverseProxyForwardsHTTPSProtocol(t *testing.T) {
+	t.Parallel()
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got, want := r.Header.Get("X-Forwarded-Proto"), "https"; got != want {
+			t.Errorf("upstream X-Forwarded-Proto = %q, want %q", got, want)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+
+	proxy, err := NewReverseProxy(upstream.URL)
+	if err != nil {
+		t.Fatalf("NewReverseProxy() error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "https://app.localhost/", nil)
+	req.TLS = &tls.ConnectionState{}
+	recorder := httptest.NewRecorder()
+
+	proxy.ServeHTTP(recorder, req)
+
+	if got, want := recorder.Code, http.StatusNoContent; got != want {
+		t.Errorf("response status = %d, want %d", got, want)
 	}
 }
