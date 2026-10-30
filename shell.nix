@@ -8,6 +8,7 @@ pkgs.mkShell {
 
   name = "tmux-dev";
   nativeBuildInputs = with pkgs; [
+    asciinema
     go
     nodejs_22
     tree
