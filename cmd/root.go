@@ -30,4 +30,5 @@ func Execute() {
 func init() {
 	// Persistent flags are available to the root command and every subcommand
 	rootCmd.PersistentFlags().StringP("port", "p", "80", "The port the proxy listens on")
+	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "Show additional diagnostic detail")
 }

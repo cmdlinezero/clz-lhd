@@ -2,3 +2,7 @@
 routes:
   app.localhost: 3000
   api.localhost: 4000
+
+tls:
+  cert: .lhd/cert.pem
+  key: .lhd/key.pem

@@ -4,3 +4,4 @@
 # Local development archives and patches
 /*.patch
 /*.tar.gz
+.lhd

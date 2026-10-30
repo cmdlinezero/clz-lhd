@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log"
@@ -19,63 +20,100 @@ import (
 
 const shutdownTimeout = 5 * time.Second
 
+type tlsListenerConfig struct {
+	Port        string
+	Certificate tls.Certificate
+}
+
 func serve(port string, routes []config.Route) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	return serveContext(ctx, port, routes)
+	return serveContext(ctx, port, routes, nil)
 }
 
-func serveContext(ctx context.Context, port string, routes []config.Route) error {
+func serveTLS(port string, routes []config.Route, tlsConfig tlsListenerConfig) error {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	return serveContext(ctx, port, routes, &tlsConfig)
+}
+
+func serveContext(ctx context.Context, port string, routes []config.Route, incomingTLS *tlsListenerConfig) error {
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())
 	mux.Handle("/", proxy.NewRouter(routes))
 
-	listener, err := net.Listen("tcp", ":"+port)
+	httpListener, err := net.Listen("tcp", ":"+port)
 	if err != nil {
 		return err
 	}
-	defer listener.Close()
+	defer httpListener.Close()
 
-	server := &http.Server{Handler: mux}
-	serveErr := make(chan error, 1)
+	var httpsListener net.Listener
+	if incomingTLS != nil {
+		httpsListener, err = net.Listen("tcp", ":"+incomingTLS.Port)
+		if err != nil {
+			return fmt.Errorf("listen HTTPS on :%s: %w", incomingTLS.Port, err)
+		}
+		defer httpsListener.Close()
+		httpsListener = tls.NewListener(httpsListener, &tls.Config{
+			Certificates: []tls.Certificate{incomingTLS.Certificate},
+			MinVersion:   tls.VersionTLS12,
+		})
+	}
 
-	go func() {
-		serveErr <- server.Serve(listener)
-	}()
+	httpServer := &http.Server{Handler: mux}
+	servers := []*http.Server{httpServer}
+	serveErr := make(chan error, 2)
+	go func() { serveErr <- httpServer.Serve(httpListener) }()
 
-	log.Print(startupSummary(port, routes))
+	if httpsListener != nil {
+		httpsServer := &http.Server{Handler: mux}
+		servers = append(servers, httpsServer)
+		go func() { serveErr <- httpsServer.Serve(httpsListener) }()
+	}
+
+	log.Print(startupSummary(port, routes, incomingTLS))
 
 	select {
 	case err := <-serveErr:
+		shutdownServers(servers)
 		if errors.Is(err, http.ErrServerClosed) {
 			return nil
 		}
 		return err
 	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-		defer cancel()
-
-		if err := server.Shutdown(shutdownCtx); err != nil {
-			return fmt.Errorf("shutdown server: %w", err)
+		if err := shutdownServers(servers); err != nil {
+			return err
 		}
-
-		err := <-serveErr
-		if errors.Is(err, http.ErrServerClosed) {
-			return nil
-		}
-		return err
+		return nil
 	}
 }
 
-func startupSummary(port string, routes []config.Route) string {
+func shutdownServers(servers []*http.Server) error {
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+
+	for _, server := range servers {
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			return fmt.Errorf("shutdown server: %w", err)
+		}
+	}
+	return nil
+}
+
+func startupSummary(port string, routes []config.Route, incomingTLS *tlsListenerConfig) string {
 	var summary strings.Builder
 
 	summary.WriteString("Routes:\n")
 	for _, route := range routes {
-		fmt.Fprintf(&summary, "  http://%s -> %s\n", route.Host, route.Target)
+		fmt.Fprintf(&summary, "  %s -> %s\n", route.Host, route.Target)
 	}
-	fmt.Fprintf(&summary, "\nListening on :%s\n", port)
+	fmt.Fprintf(&summary, "\nHTTP:    http://localhost:%s\n", port)
+	if incomingTLS != nil {
+		fmt.Fprintf(&summary, "HTTPS:   https://localhost:%s\n", incomingTLS.Port)
+	}
 	fmt.Fprintf(&summary, "Metrics: http://localhost:%s/metrics", port)
 
 	return summary.String()
