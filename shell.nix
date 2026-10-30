@@ -8,11 +8,13 @@ pkgs.mkShell {
 
   name = "tmux-dev";
   nativeBuildInputs = with pkgs; [
-    go
-    nodejs_22
-    tree
-    tmux
-    tmuxLayout
+    asciinema   # Cast videos
+    mkcert      # Local development certificates
+    go          # go runtime
+    nodejs_22   # Node JavaScript
+    tree        # Tree folder list
+    tmux        # Tmux 
+    tmuxLayout  # Tmux custom window layout
   ];
 
   LANGUAGE = "Tmux";

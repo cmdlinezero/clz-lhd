@@ -15,3 +15,13 @@ func TestCommandsRejectPositionalArguments(t *testing.T) {
 		})
 	}
 }
+
+func TestVerboseIsGlobalFlag(t *testing.T) {
+	flag := rootCmd.PersistentFlags().Lookup("verbose")
+	if flag == nil {
+		t.Fatal("verbose persistent flag not registered")
+	}
+	if flag.Shorthand != "v" {
+		t.Fatalf("verbose shorthand = %q, want %q", flag.Shorthand, "v")
+	}
+}

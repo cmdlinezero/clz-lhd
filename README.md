@@ -65,17 +65,85 @@ Use a different configuration file with `--config` / `-c`:
 ./clz-lhd up --config ./config/lhd.yaml --port 8088
 ```
 
-LHD prints the resolved routes, listening address, and metrics endpoint when it starts. `Ctrl-C` (SIGINT) and SIGTERM trigger a graceful server shutdown.
+LHD prints the resolved routes, listening addresses, and metrics endpoint when it starts. `Ctrl-C` (SIGINT) and SIGTERM trigger a graceful shutdown of all listeners.
+
+### Incoming HTTPS
+
+HTTPS is optional and certificate-provider agnostic. Configure a PEM certificate and matching private key:
+
+```yaml
+routes:
+  app.localhost: 3000
+  api.localhost: 4000
+
+tls:
+  cert: .lhd/cert.pem
+  key: .lhd/key.pem
+```
+
+Certificate and key paths are resolved relative to the configuration file. LHD loads and validates the pair before starting. It does not generate certificates or modify the system trust store; the files can come from mkcert, an internal CA, OpenSSL, or other certificate tooling.
+
+#### Generating development certificates
+
+LHD's TLS contract is deliberately simple: provide a PEM certificate and matching PEM private key. Certificate issuance and client trust remain the responsibility of the certificate tooling you choose.
+
+**mkcert** is a straightforward option for local development because it creates a local CA, can install that CA into supported trust stores, and can write the leaf certificate and key directly to paths used by LHD. Install and trust the mkcert CA once according to the [mkcert documentation](https://github.com/FiloSottile/mkcert), then from the directory containing `lhd.yaml` run:
+
+```bash
+mkdir -p .lhd
+mkcert -cert-file .lhd/cert.pem -key-file .lhd/key.pem "*.localhost" localhost
+```
+
+With the `tls` configuration above, no additional LHD-specific certificate setup is required. Keep private keys such as `.lhd/key.pem` out of source control. The repository `.gitignore` ignores the root `.lhd` directory for this reason.
+
+A certificate for `*.localhost` covers one hostname label beneath `.localhost`, such as `app.localhost` and `api.localhost`. It does not cover deeper names such as `api.dev.localhost`; include those names explicitly or use an appropriate certificate for the hostname structure you choose. `clz-lhd doctor` verifies the configured routes against the certificate.
+
+**Bring your own certificate** is equally supported. A development CA, corporate/internal PKI, OpenSSL-based workflow, or other tooling can provide the same PEM certificate/key pair. LHD does not require or detect a particular provider.
+
+**Caddy users:** Caddy has its own Local HTTPS architecture. For local/internal names it can operate a local CA, manage leaf certificates in its storage, and install its root CA into local trust stores when permitted. LHD does not depend on Caddy or reach into Caddy's managed certificate storage. If Caddy is already your HTTPS endpoint, it may be simpler to let Caddy own that responsibility; if your PKI independently provides portable PEM certificate/key files, LHD can consume them like any other certificate source. See Caddy's [Automatic HTTPS documentation](https://caddyserver.com/docs/automatic-https) for its supported model.
+
+##### Trust, validity, and hostname coverage
+
+These are separate concerns:
+
+- **Validity** — the certificate is within its `NotBefore`/`NotAfter` dates.
+- **Hostname coverage** — the certificate SANs cover each configured route hostname.
+- **Client trust** — the browser, operating system, runtime, or other client trusts the CA that issued the certificate.
+
+`clz-lhd doctor` checks the first two because they can be determined reliably from the supplied certificate. It reports issuer information to help identify the certificate source, but it does not assert client trust or modify trust stores. A certificate can therefore pass LHD diagnostics and still produce a browser warning when that browser does not trust its issuing CA.
+
+When `tls` is configured, LHD serves the same routes over both HTTP and HTTPS. HTTPS defaults to port `8443` and can be changed with `--tls-port`:
+
+```bash
+./clz-lhd up --port 8080 --tls-port 8443
+```
+
+The routes are then reachable at both `http://app.localhost:8080` and `https://app.localhost:8443`. LHD does not automatically redirect HTTP to HTTPS.
+
+#### Ports and protocol exposure
+
+| Protocol | Default port | Configuration | Purpose |
+| --- | ---: | --- | --- |
+| HTTP | `80` | `--port` / `-p` | Incoming HTTP proxy traffic and `/metrics` |
+| HTTPS | `8443` | `up --tls-port` | Incoming HTTPS proxy traffic when `tls` is configured |
+
+Both listeners use TCP. If LHD runs inside a container, VM, remote-development environment, or behind a firewall, expose or forward the listener ports that clients need to reach. LHD does not configure Docker mappings, firewall rules, VM forwarding, or remote-development port exposure itself.
+
+The incoming LHD listener ports are separate from upstream application ports such as `3000` and `4000`. Exposing only the HTTPS listener externally is fine when clients do not need direct HTTP access, but LHD still starts its HTTP listener and `/metrics` remains available there.
 
 ## Configuration
 
-The configuration file contains a `routes` mapping from request hostnames to upstream targets:
+The configuration file contains a `routes` mapping from request hostnames to upstream targets and can optionally contain incoming TLS certificate paths:
 
 ```yaml
 routes:
   app.localhost: 3000
   api.localhost: http://127.0.0.1:8080
   secure-api.localhost: https://127.0.0.1:8443
+
+tls:
+  cert: .lhd/cert.pem
+  key: .lhd/key.pem
 ```
 
 Targets can be either:
@@ -85,7 +153,7 @@ Targets can be either:
 
 Hostnames are normalized to lowercase and a trailing dot is removed. Invalid hosts, invalid targets, duplicate routes, unknown YAML fields, malformed YAML, and empty route sets are rejected before the proxy starts.
 
-An `https://` target means LHD connects **to the upstream using HTTPS**. v0.2 does not terminate HTTPS for incoming local requests; the LHD listener itself is HTTP.
+An `https://` target means LHD connects **to the upstream using HTTPS**; this is independent of incoming TLS. With a `tls` block, LHD also terminates HTTPS for incoming local requests using the configured certificate and key.
 
 ## Commands
 
@@ -98,6 +166,7 @@ Start the proxy using a configuration file. The default file is `lhd.yaml`.
 ```bash
 ./clz-lhd up
 ./clz-lhd up --config ./other.yaml
+./clz-lhd up --tls-port 8443
 ./clz-lhd up --port 8088
 ```
 
@@ -124,12 +193,27 @@ Check the configuration and local connectivity before starting LHD:
 
 ```bash
 ./clz-lhd doctor
-./clz-lhd doctor --config ./other.yaml --port 8088
+./clz-lhd doctor --config ./other.yaml --port 8088 --tls-port 8443
+./clz-lhd doctor --verbose
 ```
 
-`doctor` verifies that the configuration loads, reports the number of routes, checks whether the selected proxy port can be bound, and attempts a TCP connection to each configured upstream. It does not make HTTP requests to the upstream applications.
+`doctor` verifies that the configuration loads, reports the number of routes, checks whether the selected HTTP port can be bound, and attempts a TCP connection to each configured upstream. It does not make HTTP requests to the upstream applications.
+
+When `tls` is configured, `doctor` also loads the certificate/key pair, reports a concise issuer name, expiry date, and DNS names, verifies that the certificate is currently valid, checks that it covers every configured route hostname, and checks whether the selected HTTPS port can be bound. Use `--tls-port` when diagnosing a non-default HTTPS port.
+
+Use the global `--verbose` / `-v` flag for additional certificate diagnostics, including the full subject and issuer distinguished names, serial number, exact validity timestamps, DNS names, and signature algorithm. The flag is global, so both `clz-lhd --verbose doctor` and `clz-lhd doctor --verbose` are valid. Other commands may use the same verbosity convention as additional diagnostics are introduced.
+
+Certificate issuer information is diagnostic metadata only: it does **not** mean that the certificate is trusted by your operating system, browser, or other clients. LHD remains certificate-provider agnostic and does not inspect or modify client trust stores.
 
 The command exits non-zero when one or more diagnostics fail.
+
+For HTTPS troubleshooting, start with:
+
+```bash
+./clz-lhd doctor --verbose
+```
+
+If certificate validity and route coverage pass but a browser still reports an untrusted certificate, inspect the trust configuration for the certificate's issuing CA in that client. That trust decision is outside LHD's certificate-agnostic boundary.
 
 ### `route`
 
@@ -207,7 +291,7 @@ Use `--help` at the root or command level for the authoritative flag reference:
 ./clz-lhd doctor --help
 ```
 
-The global `--port` / `-p` flag defaults to `80`. Both `up` and `doctor` use `--config` / `-c`, which defaults to `lhd.yaml`.
+The global `--port` / `-p` flag defaults to `80`, and the global `--verbose` / `-v` flag enables additional diagnostic detail where supported. Both `up` and `doctor` use `--config` / `-c`, which defaults to `lhd.yaml`. When TLS is configured, `up --tls-port` selects the HTTPS listener port and defaults to `8443`.
 
 ## License
 

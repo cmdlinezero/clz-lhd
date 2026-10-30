@@ -114,3 +114,63 @@ routes:
 		}
 	}
 }
+
+func TestDecodeProjectTLS(t *testing.T) {
+	project, err := DecodeProject(strings.NewReader(`
+routes:
+  app.localhost: 3000
+tls:
+  cert: .lhd/cert.pem
+  key: .lhd/key.pem
+`))
+	if err != nil {
+		t.Fatalf("DecodeProject() error = %v", err)
+	}
+	if project.TLS == nil {
+		t.Fatal("TLS = nil, want configuration")
+	}
+	if got, want := project.TLS.Cert, ".lhd/cert.pem"; got != want {
+		t.Errorf("TLS.Cert = %q, want %q", got, want)
+	}
+	if got, want := project.TLS.Key, ".lhd/key.pem"; got != want {
+		t.Errorf("TLS.Key = %q, want %q", got, want)
+	}
+}
+
+func TestDecodeProjectRejectsIncompleteTLS(t *testing.T) {
+	for name, input := range map[string]string{
+		"missing cert": "routes:\n  app.localhost: 3000\ntls:\n  key: key.pem\n",
+		"missing key":  "routes:\n  app.localhost: 3000\ntls:\n  cert: cert.pem\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := DecodeProject(strings.NewReader(input)); err == nil {
+				t.Fatal("DecodeProject() error = nil, want error")
+			}
+		})
+	}
+}
+
+func TestLoadProjectResolvesTLSPathsRelativeToConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "lhd.yaml")
+	if err := os.WriteFile(path, []byte(`
+routes:
+  app.localhost: 3000
+tls:
+  cert: .lhd/cert.pem
+  key: .lhd/key.pem
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	project, err := LoadProject(path)
+	if err != nil {
+		t.Fatalf("LoadProject() error = %v", err)
+	}
+	if got, want := project.TLS.Cert, filepath.Join(dir, ".lhd", "cert.pem"); got != want {
+		t.Errorf("TLS.Cert = %q, want %q", got, want)
+	}
+	if got, want := project.TLS.Key, filepath.Join(dir, ".lhd", "key.pem"); got != want {
+		t.Errorf("TLS.Key = %q, want %q", got, want)
+	}
+}

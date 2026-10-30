@@ -15,13 +15,15 @@ var doctorCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		port, _ := cmd.Flags().GetString("port")
 		configPath, _ := cmd.Flags().GetString("config")
+		tlsPort, _ := cmd.Flags().GetString("tls-port")
+		verbose, _ := cmd.Flags().GetBool("verbose")
 
-		report, err := doctor.Run(configPath, port, time.Second)
+		report, err := doctor.Run(configPath, port, tlsPort, time.Second)
 		if err != nil {
 			return err
 		}
 
-		fmt.Fprint(cmd.OutOrStdout(), doctorSummary(report))
+		fmt.Fprint(cmd.OutOrStdout(), doctorSummary(report, verbose))
 		if problems := report.Problems(); problems > 0 {
 			return fmt.Errorf("%d %s found", problems, pluralize("problem", problems))
 		}
@@ -30,7 +32,7 @@ var doctorCmd = &cobra.Command{
 	},
 }
 
-func doctorSummary(report doctor.Report) string {
+func doctorSummary(report doctor.Report, verbose bool) string {
 	summary := "CLZ LHD diagnostics\n\n"
 	for _, check := range report.Checks {
 		mark := "✓"
@@ -38,8 +40,12 @@ func doctorSummary(report doctor.Report) string {
 			mark = "✗"
 		}
 		summary += fmt.Sprintf("%s %s\n", mark, check.Label)
-		if check.Detail != "" {
-			summary += fmt.Sprintf("  %s\n", check.Detail)
+		detail := check.Detail
+		if verbose && check.VerboseDetail != "" {
+			detail = check.VerboseDetail
+		}
+		if detail != "" {
+			summary += fmt.Sprintf("  %s\n", detail)
 		}
 	}
 
@@ -55,5 +61,6 @@ func pluralize(word string, count int) string {
 
 func init() {
 	doctorCmd.Flags().StringP("config", "c", "lhd.yaml", "path to the configuration file")
+	doctorCmd.Flags().String("tls-port", "8443", "HTTPS port when TLS is configured")
 	rootCmd.AddCommand(doctorCmd)
 }
