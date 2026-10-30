@@ -15,6 +15,7 @@ import (
 
 	"github.com/cmdlinezero/clz-lhd/internal/config"
 	"github.com/cmdlinezero/clz-lhd/internal/proxy"
+	"github.com/cmdlinezero/clz-lhd/internal/status"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -40,14 +41,17 @@ func serveTLS(port string, routes []config.Route, tlsConfig tlsListenerConfig) e
 }
 
 func serveContext(ctx context.Context, port string, routes []config.Route, incomingTLS *tlsListenerConfig) error {
-	httpHandler := newHTTPHandler(routes)
-	httpsHandler := newHTTPSHandler(routes)
+	liveStatus := status.New(routes)
+	httpHandler := newHTTPHandlerWithStatus(routes, liveStatus)
+	httpsHandler := newHTTPSHandlerWithStatus(routes, liveStatus)
 
 	httpListener, err := net.Listen("tcp", ":"+port)
 	if err != nil {
 		return err
 	}
 	defer httpListener.Close()
+	liveStatus.SetListener("http", httpListener.Addr().String(), true)
+	defer liveStatus.SetListener("http", httpListener.Addr().String(), false)
 
 	var httpsListener net.Listener
 	if incomingTLS != nil {
@@ -56,6 +60,8 @@ func serveContext(ctx context.Context, port string, routes []config.Route, incom
 			return fmt.Errorf("listen HTTPS on :%s: %w", incomingTLS.Port, err)
 		}
 		defer httpsListener.Close()
+		liveStatus.SetListener("https", httpsListener.Addr().String(), true)
+		defer liveStatus.SetListener("https", httpsListener.Addr().String(), false)
 		httpsListener = tls.NewListener(httpsListener, &tls.Config{
 			Certificates: []tls.Certificate{incomingTLS.Certificate},
 			MinVersion:   tls.VersionTLS12,
@@ -91,14 +97,29 @@ func serveContext(ctx context.Context, port string, routes []config.Route, incom
 }
 
 func newHTTPHandler(routes []config.Route) http.Handler {
+	return newHTTPHandlerWithStatus(routes, nil)
+}
+
+func newHTTPHandlerWithStatus(routes []config.Route, liveStatus *status.Model) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())
-	mux.Handle("/", proxy.NewRouter(routes))
+	mux.Handle("/", newProxyRouter(routes, liveStatus))
 	return mux
 }
 
 func newHTTPSHandler(routes []config.Route) http.Handler {
-	return proxy.NewRouter(routes)
+	return newHTTPSHandlerWithStatus(routes, nil)
+}
+
+func newHTTPSHandlerWithStatus(routes []config.Route, liveStatus *status.Model) http.Handler {
+	return newProxyRouter(routes, liveStatus)
+}
+
+func newProxyRouter(routes []config.Route, liveStatus *status.Model) http.Handler {
+	if liveStatus == nil {
+		return proxy.NewRouter(routes)
+	}
+	return proxy.NewRouterWithStatus(routes, liveStatus)
 }
 
 func shutdownServers(servers []*http.Server) error {
