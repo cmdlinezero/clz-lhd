@@ -173,6 +173,19 @@ Start the proxy using a configuration file. The default file is `lhd.yaml`.
 ./clz-lhd up --port 8088
 ```
 
+### `dash`
+
+Show a live terminal dashboard for a running LHD instance:
+
+```bash
+./clz-lhd dash
+./clz-lhd dash --status-port 9199
+```
+
+`dash` connects only to the loopback status API and polls it once per second. It shows HTTP/HTTPS listener state, current in-flight requests, the aggregate requests-per-second traffic history for the last 60 seconds, and per-route reachability and recent request results. Press `q`, `Esc`, or `Ctrl-C` to exit.
+
+The dashboard reports `DISCONNECTED` when the status API cannot be reached and keeps retrying, so it can remain open while LHD is restarted. `--status-port` must match the status port used by the running `up` or `route` command.
+
 ### `routes`
 
 Load and validate a configuration file, then print the normalized routes without starting the proxy:
