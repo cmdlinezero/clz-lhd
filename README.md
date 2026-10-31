@@ -10,6 +10,20 @@
 
 For example, a request to `http://app.localhost` can be proxied to an application listening on `http://localhost:3000`, while `http://api.localhost` can be sent to another service on port 4000.
 
+## See it in action
+
+### Command-line workflow
+
+Start LHD, inspect routes, and use its diagnostics from the command line:
+
+![CLZ LHD command-line usage](screenshots/lhd.gif)
+
+### Live dashboard
+
+Run `clz-lhd dash` in another terminal for a live view of listeners, traffic, route reachability, and recent request results:
+
+![CLZ LHD live dashboard](screenshots/lhd-dash.gif)
+
 ## Requirements
 
 - Go 1.25 or later when building from source.
