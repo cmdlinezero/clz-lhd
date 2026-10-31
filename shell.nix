@@ -9,6 +9,7 @@ pkgs.mkShell {
   name = "tmux-dev";
   nativeBuildInputs = with pkgs; [
     asciinema   # Cast videos
+    asciinema-agg   # Cast videos to Gif
     mkcert      # Local development certificates
     go          # go runtime
     nodejs_22   # Node JavaScript

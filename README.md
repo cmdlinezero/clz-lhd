@@ -10,6 +10,20 @@
 
 For example, a request to `http://app.localhost` can be proxied to an application listening on `http://localhost:3000`, while `http://api.localhost` can be sent to another service on port 4000.
 
+## See it in action
+
+### Command-line workflow
+
+Start LHD, inspect routes, and use its diagnostics from the command line:
+
+![CLZ LHD command-line usage](screenshots/lhd.gif)
+
+### Live dashboard
+
+Run `clz-lhd dash` in another terminal for a live view of listeners, traffic, route reachability, and recent request results:
+
+![CLZ LHD live dashboard](screenshots/lhd-dash.gif)
+
 ## Requirements
 
 - Go 1.25 or later when building from source.
@@ -126,8 +140,11 @@ The routes are then reachable at both `http://app.localhost:8080` and `https://a
 | --- | ---: | --- | --- |
 | HTTP | `80` | `--port` / `-p` | Incoming HTTP proxy traffic and `/metrics` |
 | HTTPS | `8443` | `up --tls-port` | Incoming HTTPS proxy traffic when `tls` is configured |
+| Status API | `9099` | `--status-port` | Loopback-only live runtime status for `dash` and other local clients |
 
-Both listeners use TCP. If LHD runs inside a container, VM, remote-development environment, or behind a firewall, expose or forward the listener ports that clients need to reach. LHD does not configure Docker mappings, firewall rules, VM forwarding, or remote-development port exposure itself.
+The HTTP and HTTPS proxy listeners use TCP. The status API is separate and binds explicitly to `127.0.0.1`, so it is not exposed on external interfaces by default. If LHD runs inside a container, VM, remote-development environment, or behind a firewall, expose or forward the listener ports that clients need to reach. LHD does not configure Docker mappings, firewall rules, VM forwarding, or remote-development port exposure itself.
+
+The status API is read-only and versioned at `http://127.0.0.1:9099/v1/status`. It returns the current listener, route, reachability, request, and 60-second traffic snapshot as JSON. Change its loopback port with `--status-port`; LHD fails startup if that port is unavailable rather than silently disabling live status.
 
 The incoming LHD listener ports are separate from upstream application ports such as `3000` and `4000`. Exposing only the HTTPS listener externally is fine when clients do not need direct HTTP access, but LHD still starts its HTTP listener and `/metrics` remains available there.
 
@@ -169,6 +186,19 @@ Start the proxy using a configuration file. The default file is `lhd.yaml`.
 ./clz-lhd up --tls-port 8443
 ./clz-lhd up --port 8088
 ```
+
+### `dash`
+
+Show a live terminal dashboard for a running LHD instance:
+
+```bash
+./clz-lhd dash
+./clz-lhd dash --status-port 9199
+```
+
+`dash` connects only to the loopback status API and polls it once per second. It shows HTTP/HTTPS listener state, current in-flight requests, the aggregate requests-per-second traffic history for the last 60 seconds, and per-route reachability and recent request results. Listener and route markers make connected, unknown, refused, and timeout states easier to scan, and route rows switch to a compact layout on narrow terminals. On short terminals, the route list follows the selection and the traffic graph is omitted when necessary so the selected route, detail panel, and controls remain visible. The first route is selected by default; use `j`/`k` to navigate, `g`/`G` to jump to the first/last route, and `q` (or `Ctrl-C`) to exit. The selected route has a read-only detail panel with its full target, reachability, request count, and most recent request result.
+
+The dashboard reports `DISCONNECTED` when the status API cannot be reached and keeps retrying, so it can remain open while LHD is restarted. `--status-port` must match the status port used by the running `up` or `route` command.
 
 ### `routes`
 
@@ -278,6 +308,7 @@ The current command surface is:
 ```text
 clz-lhd
 ├── up       Start the proxy using a configuration file
+├── dash     Show the live local LHD dashboard
 ├── routes   Show configured routes
 ├── doctor   Check local proxy configuration and connectivity
 └── route    Start the proxy with host mappings
@@ -291,7 +322,7 @@ Use `--help` at the root or command level for the authoritative flag reference:
 ./clz-lhd doctor --help
 ```
 
-The global `--port` / `-p` flag defaults to `80`, and the global `--verbose` / `-v` flag enables additional diagnostic detail where supported. Both `up` and `doctor` use `--config` / `-c`, which defaults to `lhd.yaml`. When TLS is configured, `up --tls-port` selects the HTTPS listener port and defaults to `8443`.
+The global `--port` / `-p` flag defaults to `80`, `--status-port` selects the loopback-only status API port and defaults to `9099`, and the global `--verbose` / `-v` flag enables additional diagnostic detail where supported. Both `up` and `doctor` use `--config` / `-c`, which defaults to `lhd.yaml`. When TLS is configured, `up --tls-port` selects the HTTPS listener port and defaults to `8443`.
 
 ## License
 

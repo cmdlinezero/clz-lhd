@@ -11,13 +11,14 @@ var routeCmd = &cobra.Command{
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		port, _ := cmd.Flags().GetString("port")
+		statusPort, _ := cmd.Flags().GetString("status-port")
 		routeSpecs, _ := cmd.Flags().GetStringArray("route")
 		routes, err := config.ParseRoutes(routeSpecs)
 		if err != nil {
 			return err
 		}
 
-		return serve(port, routes)
+		return serve(port, statusPort, routes)
 	},
 }
 

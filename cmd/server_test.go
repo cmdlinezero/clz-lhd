@@ -21,13 +21,14 @@ func TestStartupSummary(t *testing.T) {
 		t.Fatalf("ParseRoutes() error = %v", err)
 	}
 
-	got := startupSummary("8088", routes, nil)
+	got := startupSummary("8088", "9099", routes, nil)
 	want := "Routes:\n" +
 		"  app.localhost -> http://localhost:3000\n" +
 		"  api.localhost -> http://127.0.0.1:4000\n" +
 		"\n" +
 		"HTTP:    http://localhost:8088\n" +
-		"Metrics: http://localhost:8088/metrics"
+		"Metrics: http://localhost:8088/metrics\n" +
+		"Status:  http://127.0.0.1:9099/v1/status"
 
 	if got != want {
 		t.Fatalf("startupSummary() = %q, want %q", got, want)
@@ -40,13 +41,14 @@ func TestStartupSummaryWithTLS(t *testing.T) {
 		t.Fatalf("ParseRoutes() error = %v", err)
 	}
 
-	got := startupSummary("8080", routes, &tlsListenerConfig{Port: "8443"})
+	got := startupSummary("8080", "9099", routes, &tlsListenerConfig{Port: "8443"})
 	want := "Routes:\n" +
 		"  app.localhost -> http://localhost:3000\n" +
 		"\n" +
 		"HTTP:    http://localhost:8080\n" +
 		"HTTPS:   https://localhost:8443\n" +
-		"Metrics: http://localhost:8080/metrics"
+		"Metrics: http://localhost:8080/metrics\n" +
+		"Status:  http://127.0.0.1:9099/v1/status"
 	if got != want {
 		t.Fatalf("startupSummary() = %q, want %q", got, want)
 	}
@@ -56,7 +58,7 @@ func TestServeContextShutsDownWhenCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	if err := serveContext(ctx, "0", nil, nil); err != nil {
+	if err := serveContext(ctx, "0", "0", nil, nil); err != nil {
 		t.Fatalf("serveContext() error = %v, want nil", err)
 	}
 }
@@ -66,7 +68,7 @@ func TestServeContextWithTLSShutsDownWhenCancelled(t *testing.T) {
 	cancel()
 
 	incomingTLS := &tlsListenerConfig{Port: "0", Certificate: tls.Certificate{}}
-	if err := serveContext(ctx, "0", nil, incomingTLS); err != nil {
+	if err := serveContext(ctx, "0", "0", nil, incomingTLS); err != nil {
 		t.Fatalf("serveContext() error = %v, want nil", err)
 	}
 }
@@ -79,7 +81,7 @@ func TestServeContextReportsListenError(t *testing.T) {
 	defer listener.Close()
 
 	port := strconv.Itoa(listener.Addr().(*net.TCPAddr).Port)
-	if err := serveContext(context.Background(), port, nil, nil); err == nil {
+	if err := serveContext(context.Background(), port, "0", nil, nil); err == nil {
 		t.Fatal("serveContext() error = nil, want listen error")
 	}
 }
@@ -93,8 +95,21 @@ func TestServeContextReportsTLSListenError(t *testing.T) {
 
 	port := strconv.Itoa(listener.Addr().(*net.TCPAddr).Port)
 	incomingTLS := &tlsListenerConfig{Port: port, Certificate: tls.Certificate{}}
-	if err := serveContext(context.Background(), "0", nil, incomingTLS); err == nil {
+	if err := serveContext(context.Background(), "0", "0", nil, incomingTLS); err == nil {
 		t.Fatal("serveContext() error = nil, want HTTPS listen error")
+	}
+}
+
+func TestServeContextReportsStatusListenError(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+
+	port := strconv.Itoa(listener.Addr().(*net.TCPAddr).Port)
+	if err := serveContext(context.Background(), "0", port, nil, nil); err == nil {
+		t.Fatal("serveContext() error = nil, want status listen error")
 	}
 }
 

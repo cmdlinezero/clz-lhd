@@ -14,6 +14,7 @@ var upCmd = &cobra.Command{
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		port, _ := cmd.Flags().GetString("port")
+		statusPort, _ := cmd.Flags().GetString("status-port")
 		tlsPort, _ := cmd.Flags().GetString("tls-port")
 		configPath, _ := cmd.Flags().GetString("config")
 
@@ -22,14 +23,14 @@ var upCmd = &cobra.Command{
 			return err
 		}
 		if project.TLS == nil {
-			return serve(port, project.Routes)
+			return serve(port, statusPort, project.Routes)
 		}
 
 		certificate, err := tlsconfig.Load(project.TLS.Cert, project.TLS.Key)
 		if err != nil {
 			return fmt.Errorf("load TLS certificate: %w", err)
 		}
-		return serveTLS(port, project.Routes, tlsListenerConfig{
+		return serveTLS(port, statusPort, project.Routes, tlsListenerConfig{
 			Port:        tlsPort,
 			Certificate: certificate.TLS,
 		})

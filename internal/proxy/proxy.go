@@ -28,6 +28,10 @@ var (
 )
 
 func NewReverseProxy(target string) (*httputil.ReverseProxy, error) {
+	return newReverseProxy(target, nil)
+}
+
+func newReverseProxy(target string, onError func(error)) (*httputil.ReverseProxy, error) {
 	url, err := url.Parse(target)
 	if err != nil {
 		return nil, err
@@ -41,7 +45,10 @@ func NewReverseProxy(target string) (*httputil.ReverseProxy, error) {
 		req.Header.Set("X-Forwarded-Host", originalHost)
 		req.Header.Set("X-Forwarded-Proto", originalProto)
 	}
-	proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, _ error) {
+	proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, err error) {
+		if onError != nil {
+			onError(err)
+		}
 		http.Error(w, "Proxy: upstream unavailable", http.StatusBadGateway)
 	}
 
