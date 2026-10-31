@@ -7,6 +7,7 @@ import (
 
 	"github.com/cmdlinezero/clz-lhd/internal/dashboard"
 	"github.com/cmdlinezero/clz-lhd/internal/statusclient"
+	"github.com/cmdlinezero/clz-lhd/internal/statushttp"
 	"github.com/gdamore/tcell/v3"
 	"github.com/spf13/cobra"
 )
@@ -41,15 +42,25 @@ func runDashboard(ctx context.Context, client *statusclient.Client) error {
 	defer screen.Fini()
 	screen.HideCursor()
 
+	selection := dashboard.Selection{}
+	var snapshot statushttp.Response
+	var fetchErr error
+
 	ticker := time.NewTicker(dashboardRefresh)
 	defer ticker.Stop()
 
+	redraw := func() {
+		width, height := screen.Size()
+		drawDashboard(screen, dashboard.Lines(snapshot, fetchErr, selection.Host, width, height, time.Now()))
+	}
 	refresh := func() {
 		fetchCtx, cancel := context.WithTimeout(ctx, 750*time.Millisecond)
-		snapshot, fetchErr := client.Snapshot(fetchCtx)
+		snapshot, fetchErr = client.Snapshot(fetchCtx)
 		cancel()
-		width, height := screen.Size()
-		drawDashboard(screen, dashboard.Lines(snapshot, fetchErr, width, height, time.Now()))
+		if fetchErr == nil {
+			selection.Normalize(snapshot.Routes)
+		}
+		redraw()
 	}
 	refresh()
 
@@ -66,9 +77,25 @@ func runDashboard(ctx context.Context, client *statusclient.Client) error {
 			switch event := event.(type) {
 			case *tcell.EventResize:
 				screen.Sync()
-				refresh()
+				redraw()
 			case *tcell.EventKey:
-				if event.Str() == "q" || event.Str() == "Q" || event.Key() == tcell.KeyCtrlC || event.Key() == tcell.KeyEscape {
+				switch event.Str() {
+				case "q":
+					return nil
+				case "j":
+					selection.Move(snapshot.Routes, 1)
+					redraw()
+				case "k":
+					selection.Move(snapshot.Routes, -1)
+					redraw()
+				case "g":
+					selection.First(snapshot.Routes)
+					redraw()
+				case "G":
+					selection.Last(snapshot.Routes)
+					redraw()
+				}
+				if event.Key() == tcell.KeyCtrlC {
 					return nil
 				}
 			}

@@ -126,7 +126,7 @@ The routes are then reachable at both `http://app.localhost:8080` and `https://a
 | --- | ---: | --- | --- |
 | HTTP | `80` | `--port` / `-p` | Incoming HTTP proxy traffic and `/metrics` |
 | HTTPS | `8443` | `up --tls-port` | Incoming HTTPS proxy traffic when `tls` is configured |
-| Status API | `9099` | `--status-port` | Loopback-only live runtime status for local clients such as the future TUI |
+| Status API | `9099` | `--status-port` | Loopback-only live runtime status for `dash` and other local clients |
 
 The HTTP and HTTPS proxy listeners use TCP. The status API is separate and binds explicitly to `127.0.0.1`, so it is not exposed on external interfaces by default. If LHD runs inside a container, VM, remote-development environment, or behind a firewall, expose or forward the listener ports that clients need to reach. LHD does not configure Docker mappings, firewall rules, VM forwarding, or remote-development port exposure itself.
 
@@ -182,7 +182,7 @@ Show a live terminal dashboard for a running LHD instance:
 ./clz-lhd dash --status-port 9199
 ```
 
-`dash` connects only to the loopback status API and polls it once per second. It shows HTTP/HTTPS listener state, current in-flight requests, the aggregate requests-per-second traffic history for the last 60 seconds, and per-route reachability and recent request results. Listener and route markers make connected, unknown, refused, and timeout states easier to scan, and route rows switch to a compact layout on narrow terminals. Press `q`, `Esc`, or `Ctrl-C` to exit.
+`dash` connects only to the loopback status API and polls it once per second. It shows HTTP/HTTPS listener state, current in-flight requests, the aggregate requests-per-second traffic history for the last 60 seconds, and per-route reachability and recent request results. Listener and route markers make connected, unknown, refused, and timeout states easier to scan, and route rows switch to a compact layout on narrow terminals. On short terminals, the route list follows the selection and the traffic graph is omitted when necessary so the selected route, detail panel, and controls remain visible. The first route is selected by default; use `j`/`k` to navigate, `g`/`G` to jump to the first/last route, and `q` (or `Ctrl-C`) to exit. The selected route has a read-only detail panel with its full target, reachability, request count, and most recent request result.
 
 The dashboard reports `DISCONNECTED` when the status API cannot be reached and keeps retrying, so it can remain open while LHD is restarted. `--status-port` must match the status port used by the running `up` or `route` command.
 
@@ -294,6 +294,7 @@ The current command surface is:
 ```text
 clz-lhd
 ├── up       Start the proxy using a configuration file
+├── dash     Show the live local LHD dashboard
 ├── routes   Show configured routes
 ├── doctor   Check local proxy configuration and connectivity
 └── route    Start the proxy with host mappings
