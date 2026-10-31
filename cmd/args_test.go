@@ -16,6 +16,16 @@ func TestCommandsRejectPositionalArguments(t *testing.T) {
 	}
 }
 
+func TestStatusPortIsGlobalFlag(t *testing.T) {
+	flag := rootCmd.PersistentFlags().Lookup("status-port")
+	if flag == nil {
+		t.Fatal("status-port persistent flag not registered")
+	}
+	if flag.DefValue != "9099" {
+		t.Fatalf("status-port default = %q, want %q", flag.DefValue, "9099")
+	}
+}
+
 func TestVerboseIsGlobalFlag(t *testing.T) {
 	flag := rootCmd.PersistentFlags().Lookup("verbose")
 	if flag == nil {

@@ -126,8 +126,11 @@ The routes are then reachable at both `http://app.localhost:8080` and `https://a
 | --- | ---: | --- | --- |
 | HTTP | `80` | `--port` / `-p` | Incoming HTTP proxy traffic and `/metrics` |
 | HTTPS | `8443` | `up --tls-port` | Incoming HTTPS proxy traffic when `tls` is configured |
+| Status API | `9099` | `--status-port` | Loopback-only live runtime status for local clients such as the future TUI |
 
-Both listeners use TCP. If LHD runs inside a container, VM, remote-development environment, or behind a firewall, expose or forward the listener ports that clients need to reach. LHD does not configure Docker mappings, firewall rules, VM forwarding, or remote-development port exposure itself.
+The HTTP and HTTPS proxy listeners use TCP. The status API is separate and binds explicitly to `127.0.0.1`, so it is not exposed on external interfaces by default. If LHD runs inside a container, VM, remote-development environment, or behind a firewall, expose or forward the listener ports that clients need to reach. LHD does not configure Docker mappings, firewall rules, VM forwarding, or remote-development port exposure itself.
+
+The status API is read-only and versioned at `http://127.0.0.1:9099/v1/status`. It returns the current listener, route, reachability, request, and 60-second traffic snapshot as JSON. Change its loopback port with `--status-port`; LHD fails startup if that port is unavailable rather than silently disabling live status.
 
 The incoming LHD listener ports are separate from upstream application ports such as `3000` and `4000`. Exposing only the HTTPS listener externally is fine when clients do not need direct HTTP access, but LHD still starts its HTTP listener and `/metrics` remains available there.
 
@@ -291,7 +294,7 @@ Use `--help` at the root or command level for the authoritative flag reference:
 ./clz-lhd doctor --help
 ```
 
-The global `--port` / `-p` flag defaults to `80`, and the global `--verbose` / `-v` flag enables additional diagnostic detail where supported. Both `up` and `doctor` use `--config` / `-c`, which defaults to `lhd.yaml`. When TLS is configured, `up --tls-port` selects the HTTPS listener port and defaults to `8443`.
+The global `--port` / `-p` flag defaults to `80`, `--status-port` selects the loopback-only status API port and defaults to `9099`, and the global `--verbose` / `-v` flag enables additional diagnostic detail where supported. Both `up` and `doctor` use `--config` / `-c`, which defaults to `lhd.yaml`. When TLS is configured, `up --tls-port` selects the HTTPS listener port and defaults to `8443`.
 
 ## License
 

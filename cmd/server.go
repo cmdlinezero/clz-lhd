@@ -16,6 +16,7 @@ import (
 	"github.com/cmdlinezero/clz-lhd/internal/config"
 	"github.com/cmdlinezero/clz-lhd/internal/proxy"
 	"github.com/cmdlinezero/clz-lhd/internal/status"
+	"github.com/cmdlinezero/clz-lhd/internal/statushttp"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -26,21 +27,21 @@ type tlsListenerConfig struct {
 	Certificate tls.Certificate
 }
 
-func serve(port string, routes []config.Route) error {
+func serve(port, statusPort string, routes []config.Route) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	return serveContext(ctx, port, routes, nil)
+	return serveContext(ctx, port, statusPort, routes, nil)
 }
 
-func serveTLS(port string, routes []config.Route, tlsConfig tlsListenerConfig) error {
+func serveTLS(port, statusPort string, routes []config.Route, tlsConfig tlsListenerConfig) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	return serveContext(ctx, port, routes, &tlsConfig)
+	return serveContext(ctx, port, statusPort, routes, &tlsConfig)
 }
 
-func serveContext(ctx context.Context, port string, routes []config.Route, incomingTLS *tlsListenerConfig) error {
+func serveContext(ctx context.Context, port, statusPort string, routes []config.Route, incomingTLS *tlsListenerConfig) error {
 	liveStatus := status.New(routes)
 	httpHandler := newHTTPHandlerWithStatus(routes, liveStatus)
 	httpsHandler := newHTTPSHandlerWithStatus(routes, liveStatus)
@@ -68,10 +69,18 @@ func serveContext(ctx context.Context, port string, routes []config.Route, incom
 		})
 	}
 
+	statusListener, err := net.Listen("tcp", "127.0.0.1:"+statusPort)
+	if err != nil {
+		return fmt.Errorf("listen status on 127.0.0.1:%s: %w", statusPort, err)
+	}
+	defer statusListener.Close()
+
 	httpServer := &http.Server{Handler: httpHandler}
-	servers := []*http.Server{httpServer}
-	serveErr := make(chan error, 2)
+	statusServer := &http.Server{Handler: statushttp.NewHandler(liveStatus)}
+	servers := []*http.Server{httpServer, statusServer}
+	serveErr := make(chan error, 3)
 	go func() { serveErr <- httpServer.Serve(httpListener) }()
+	go func() { serveErr <- statusServer.Serve(statusListener) }()
 
 	if httpsListener != nil {
 		httpsServer := &http.Server{Handler: httpsHandler}
@@ -79,7 +88,7 @@ func serveContext(ctx context.Context, port string, routes []config.Route, incom
 		go func() { serveErr <- httpsServer.Serve(httpsListener) }()
 	}
 
-	log.Print(startupSummary(port, routes, incomingTLS))
+	log.Print(startupSummary(port, statusPort, routes, incomingTLS))
 
 	select {
 	case err := <-serveErr:
@@ -134,7 +143,7 @@ func shutdownServers(servers []*http.Server) error {
 	return nil
 }
 
-func startupSummary(port string, routes []config.Route, incomingTLS *tlsListenerConfig) string {
+func startupSummary(port, statusPort string, routes []config.Route, incomingTLS *tlsListenerConfig) string {
 	var summary strings.Builder
 
 	summary.WriteString("Routes:\n")
@@ -145,7 +154,8 @@ func startupSummary(port string, routes []config.Route, incomingTLS *tlsListener
 	if incomingTLS != nil {
 		fmt.Fprintf(&summary, "HTTPS:   https://localhost:%s\n", incomingTLS.Port)
 	}
-	fmt.Fprintf(&summary, "Metrics: http://localhost:%s/metrics", port)
+	fmt.Fprintf(&summary, "Metrics: http://localhost:%s/metrics\n", port)
+	fmt.Fprintf(&summary, "Status:  http://127.0.0.1:%s/v1/status", statusPort)
 
 	return summary.String()
 }
