@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cmdlinezero/clz-lhd/internal/status"
 	"github.com/cmdlinezero/clz-lhd/internal/statushttp"
 )
 
@@ -19,17 +20,17 @@ func Lines(snapshot statushttp.Response, fetchErr error, width, height int, now 
 
 	lines := []string{"CLZ LHD"}
 	if fetchErr != nil {
-		lines = append(lines, "", "DISCONNECTED", trim("Status API: "+fetchErr.Error(), width), "", "q quit")
+		lines = append(lines, "", "○ DISCONNECTED", trim("Status API: "+fetchErr.Error(), width), "", "q quit")
 		return fit(lines, width, height)
 	}
 
-	lines[0] = trim(fmt.Sprintf("CLZ LHD%*sLIVE", max(1, width-11), ""), width)
+	lines[0] = trim(fmt.Sprintf("CLZ LHD%*s● LIVE", max(1, width-13), ""), width)
 	lines = append(lines, "", trim(fmt.Sprintf("HTTP %s    HTTPS %s    In flight: %d", listener(snapshot.HTTP), listener(snapshot.HTTPS), snapshot.InFlight), width))
 	lines = append(lines, "", "TRAFFIC — requests/sec · last 60s")
 	lines = append(lines, graph(snapshot.Traffic, width)...)
 	lines = append(lines, "", "ROUTES")
 	for _, route := range snapshot.Routes {
-		lines = append(lines, trim(routeLine(route), width))
+		lines = append(lines, trim(routeLine(route, width), width))
 	}
 	lines = append(lines, "")
 	age := now.Sub(snapshot.At).Round(time.Second)
@@ -42,21 +43,41 @@ func Lines(snapshot statushttp.Response, fetchErr error, width, height int, now 
 
 func listener(l statushttp.Listener) string {
 	if !l.Listening {
-		return "—"
+		return "○ —"
 	}
-	return l.Address + " ●"
+	return "● " + l.Address
 }
 
-func routeLine(route statushttp.Route) string {
+func routeLine(route statushttp.Route, width int) string {
 	target := route.Target
 	if parsed, err := url.Parse(route.Target); err == nil && parsed.Host != "" {
 		target = parsed.Host
 	}
+	state := routeState(route.Reachability)
 	last := "—"
 	if route.LastStatus != 0 {
 		last = fmt.Sprintf("%d %.0fms", route.LastStatus, route.LastDurationMS)
 	}
-	return fmt.Sprintf("%-22s → %-22s %-10s %6d req  %s", route.Host, target, strings.ToUpper(string(route.Reachability)), route.Requests, last)
+
+	// Preserve the state and recent result on ordinary terminals, while using a
+	// compact layout before truncation becomes necessary on narrow terminals.
+	if width < 72 {
+		return fmt.Sprintf("%s %-18s → %-18s %s", state, route.Host, target, last)
+	}
+	return fmt.Sprintf("%s %-22s → %-22s %6d req  %s", state, route.Host, target, route.Requests, last)
+}
+
+func routeState(reachability status.Reachability) string {
+	switch reachability {
+	case status.ReachabilityConnected:
+		return "● CONNECTED"
+	case status.ReachabilityRefused:
+		return "× REFUSED"
+	case status.ReachabilityTimeout:
+		return "! TIMEOUT"
+	default:
+		return "○ UNKNOWN"
+	}
 }
 
 func graph(buckets []statushttp.TrafficBucket, width int) []string {
@@ -79,11 +100,18 @@ func graph(buckets []statushttp.TrafficBucket, width int) []string {
 
 	lines := make([]string, 0, graphHeight+1)
 	for row := graphHeight; row >= 1; row-- {
-		threshold := uint64((int(peak)*row + graphHeight - 1) / graphHeight)
+		label := "   "
+		if row == graphHeight {
+			label = fmt.Sprintf("%3d", peak)
+		} else if peak > 1 && row == graphHeight/2 {
+			label = fmt.Sprintf("%3d", max(1, int((peak+1)/2)))
+		}
+
 		var b strings.Builder
-		fmt.Fprintf(&b, "%3d ┤", threshold)
+		fmt.Fprintf(&b, "%s ┤", label)
 		for _, value := range values {
-			if value >= threshold {
+			filledRows := int((value*graphHeight + peak - 1) / peak)
+			if filledRows >= row {
 				b.WriteRune('█')
 			} else {
 				b.WriteRune(' ')
