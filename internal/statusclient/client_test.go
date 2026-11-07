@@ -38,3 +38,21 @@ func TestClientRejectsNonOKResponse(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestClientRequests(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/requests" {
+			t.Errorf("unexpected path %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"events":[{"id":3,"phase":"request_started","host":"app.localhost"}]}`))
+	}))
+	defer server.Close()
+	client := &Client{URL: server.URL + "/v1/status", HTTPClient: server.Client()}
+	response, err := client.Requests(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Events) != 1 || response.Events[0].ID != 3 {
+		t.Fatalf("events: %+v", response.Events)
+	}
+}

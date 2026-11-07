@@ -43,8 +43,9 @@ func serveTLS(port, statusPort string, routes []config.Route, tlsConfig tlsListe
 
 func serveContext(ctx context.Context, port, statusPort string, routes []config.Route, incomingTLS *tlsListenerConfig) error {
 	liveStatus := status.New(routes)
-	httpHandler := newHTTPHandlerWithStatus(routes, liveStatus)
-	httpsHandler := newHTTPSHandlerWithStatus(routes, liveStatus)
+	lifecycle := proxy.NewLifecycleRecorder(256)
+	httpHandler := newHTTPHandlerWithRecorder(routes, liveStatus, lifecycle)
+	httpsHandler := newHTTPSHandlerWithRecorder(routes, liveStatus, lifecycle)
 
 	httpListener, err := net.Listen("tcp", ":"+port)
 	if err != nil {
@@ -76,7 +77,7 @@ func serveContext(ctx context.Context, port, statusPort string, routes []config.
 	defer statusListener.Close()
 
 	httpServer := &http.Server{Handler: httpHandler}
-	statusServer := &http.Server{Handler: statushttp.NewHandler(liveStatus)}
+	statusServer := &http.Server{Handler: statushttp.NewHandler(liveStatus, lifecycle)}
 	servers := []*http.Server{httpServer, statusServer}
 	serveErr := make(chan error, 3)
 	go func() { serveErr <- httpServer.Serve(httpListener) }()
@@ -110,9 +111,13 @@ func newHTTPHandler(routes []config.Route) http.Handler {
 }
 
 func newHTTPHandlerWithStatus(routes []config.Route, liveStatus *status.Model) http.Handler {
+	return newHTTPHandlerWithRecorder(routes, liveStatus, nil)
+}
+
+func newHTTPHandlerWithRecorder(routes []config.Route, liveStatus *status.Model, lifecycle *proxy.LifecycleRecorder) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())
-	mux.Handle("/", newProxyRouter(routes, liveStatus))
+	mux.Handle("/", newProxyRouterWithRecorder(routes, liveStatus, lifecycle))
 	return mux
 }
 
@@ -121,10 +126,21 @@ func newHTTPSHandler(routes []config.Route) http.Handler {
 }
 
 func newHTTPSHandlerWithStatus(routes []config.Route, liveStatus *status.Model) http.Handler {
-	return newProxyRouter(routes, liveStatus)
+	return newHTTPSHandlerWithRecorder(routes, liveStatus, nil)
+}
+
+func newHTTPSHandlerWithRecorder(routes []config.Route, liveStatus *status.Model, lifecycle *proxy.LifecycleRecorder) http.Handler {
+	return newProxyRouterWithRecorder(routes, liveStatus, lifecycle)
 }
 
 func newProxyRouter(routes []config.Route, liveStatus *status.Model) http.Handler {
+	return newProxyRouterWithRecorder(routes, liveStatus, nil)
+}
+
+func newProxyRouterWithRecorder(routes []config.Route, liveStatus *status.Model, lifecycle *proxy.LifecycleRecorder) http.Handler {
+	if lifecycle != nil {
+		return proxy.NewRouterWithRecorder(routes, liveStatus, lifecycle)
+	}
 	if liveStatus == nil {
 		return proxy.NewRouter(routes)
 	}

@@ -144,7 +144,10 @@ The routes are then reachable at both `http://app.localhost:8080` and `https://a
 
 The HTTP and HTTPS proxy listeners use TCP. The status API is separate and binds explicitly to `127.0.0.1`, so it is not exposed on external interfaces by default. If LHD runs inside a container, VM, remote-development environment, or behind a firewall, expose or forward the listener ports that clients need to reach. LHD does not configure Docker mappings, firewall rules, VM forwarding, or remote-development port exposure itself.
 
-The status API is read-only and versioned at `http://127.0.0.1:9099/v1/status`. It returns the current listener, route, reachability, request, and 60-second traffic snapshot as JSON. Change its loopback port with `--status-port`; LHD fails startup if that port is unavailable rather than silently disabling live status.
+The status API is read-only and versioned at `http://127.0.0.1:9099/v1/status`. Both status endpoints send `Cache-Control: no-store` to discourage caching live operational data. It returns the current listener, route, reachability, request, and 60-second traffic snapshot as JSON. Change its loopback port with `--status-port`; LHD fails startup if that port is unavailable rather than silently disabling live status.
+
+Recent request lifecycle metadata is available from `GET http://127.0.0.1:9099/v1/requests` (on the same loopback-only status port). The JSON response is an object containing an `events` array, **newest first**, capped at 256 events across HTTP and HTTPS proxy listeners. Each event includes `id` (request correlation ID), `phase` (`request_started`, `response_started`, or `request_completed`), `at` (timestamp), `host`, `method`, `path`, `status`, `duration_ms`, and `cancelled`. Status is `0` before a response starts; duration is `0` on request start. `cancelled` indicates request-context cancellation at completion. The array is empty when no requests have been observed. Query strings, headers, and request/response bodies are not stored or returned, but **URL paths may themselves contain sensitive information**. Keep the local status listener private; do not expose it publicly. This endpoint is a bounded snapshot, not a lossless event stream; polling may miss events during heavy traffic.
+
 
 The incoming LHD listener ports are separate from upstream application ports such as `3000` and `4000`. Exposing only the HTTPS listener externally is fine when clients do not need direct HTTP access, but LHD still starts its HTTP listener and `/metrics` remains available there.
 
@@ -172,6 +175,36 @@ Hostnames are normalized to lowercase and a trailing dot is removed. Invalid hos
 
 An `https://` target means LHD connects **to the upstream using HTTPS**; this is independent of incoming TLS. With a `tls` block, LHD also terminates HTTPS for incoming local requests using the configured certificate and key.
 
+### LAN services and Ollama
+
+An explicit URL target may point to another machine on a trusted LAN, not just a local port. For example, if Ollama is running on a separate machine:
+
+```yaml
+routes:
+  ollama.localhost: http://192.168.1.50:11434
+```
+
+Replace the example IP with your Ollama server's LAN address. Start LHD normally, then check the upstream and list available models:
+
+```bash
+./clz-lhd doctor --config lhd.yaml
+./clz-lhd up --config lhd.yaml
+# In another terminal:
+curl http://ollama.localhost/api/tags
+```
+
+For a model already installed on that machine, test an incremental response (replace `YOUR_MODEL`):
+
+```bash
+curl -N http://ollama.localhost/api/generate \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"YOUR_MODEL","prompt":"Count from one to ten.","stream":true}'
+```
+
+Ollama must listen on an address reachable from the LHD machine, and the LAN firewall must permit the connection. Restrict access to trusted clients: Ollama's HTTP API should not be exposed directly to untrusted networks. `doctor` checks TCP reachability, not model availability or API correctness. The proxy forwards streaming HTTP responses incrementally; the `curl -N` option disables curl's output buffering. Incoming HTTPS on LHD does **not** encrypt an `http://` LAN upstream hop—use an HTTPS upstream or a trusted network when confidentiality is required.
+
+LHD preserves the original request `Host` header when proxying. If your Ollama deployment or another upstream rejects `ollama.localhost` as its Host, that requires separate compatibility handling; this example does not change Host rewriting behaviour.
+
 ## Commands
 
 Commands accept flags only; unexpected positional arguments are rejected.
@@ -196,7 +229,7 @@ Show a live terminal dashboard for a running LHD instance:
 ./clz-lhd dash --status-port 9199
 ```
 
-`dash` connects only to the loopback status API and polls it once per second. It shows HTTP/HTTPS listener state, current in-flight requests, the aggregate requests-per-second traffic history for the last 60 seconds, and per-route reachability and recent request results. Listener and route markers make connected, unknown, refused, and timeout states easier to scan, and route rows switch to a compact layout on narrow terminals. On short terminals, the route list follows the selection and the traffic graph is omitted when necessary so the selected route, detail panel, and controls remain visible. The first route is selected by default; use `j`/`k` to navigate, `g`/`G` to jump to the first/last route, and `q` (or `Ctrl-C`) to exit. The selected route has a read-only detail panel with its full target, reachability, request count, and most recent request result.
+`dash` connects only to the loopback status API and polls it once per second. It shows HTTP/HTTPS listener state, current in-flight requests, the aggregate requests-per-second traffic history for the last 60 seconds, and per-route reachability and recent request results. Listener and route markers make connected, unknown, refused, and timeout states easier to scan, and route rows switch to a compact layout on narrow terminals. On short terminals, the route list follows the selection and the traffic graph is omitted when necessary so the selected route, detail panel, and controls remain visible. The first route is selected by default; use `j`/`k` to navigate, `g`/`G` to jump to the first/last route, and `q` (or `Ctrl-C`) to exit. The selected route has a read-only detail panel with its full target, reachability, request count, and most recent request result. Press `Tab` to switch between Routes and Requests; the Requests view groups lifecycle events by request ID, distinguishes waiting, active, completed, and cancelled requests, and shows the selected request’s timestamps, status, time to first response (TTFB), total or ongoing duration, and cancellation state. The same `j`/`k` and `g`/`G` navigation applies in either view. Request history is bounded and in memory, so older or incomplete milestones may be missing. An active response is not necessarily streaming: TTFB measures time until response headers are written, not the arrival of individual body chunks. Paths can contain sensitive information even though query strings and bodies are excluded.
 
 The dashboard reports `DISCONNECTED` when the status API cannot be reached and keeps retrying, so it can remain open while LHD is restarted. `--status-port` must match the status port used by the running `up` or `route` command.
 
