@@ -15,8 +15,9 @@ import (
 
 // Router proxies requests according to their Host header.
 type Router struct {
-	routes   map[string]config.Route
-	observer statusObserver
+	routes    map[string]config.Route
+	observer  statusObserver
+	lifecycle *LifecycleRecorder
 }
 
 type statusObserver interface {
@@ -36,12 +37,23 @@ func NewRouterWithStatus(routes []config.Route, observer statusObserver) *Router
 	for _, route := range routes {
 		byHost[route.Host] = route
 	}
-	return &Router{routes: byHost, observer: observer}
+	return &Router{routes: byHost, observer: observer, lifecycle: NewLifecycleRecorder(defaultLifecycleCapacity)}
+}
+
+// LifecycleSnapshot returns a copy of recent request lifecycle events.
+// It is intentionally not exposed by the public status API in this release.
+func (router *Router) LifecycleSnapshot() []LifecycleEvent {
+	return router.lifecycle.Snapshot()
 }
 
 func (router *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	host := requestHost(r.Host)
 	start := time.Now()
+	path := r.URL.EscapedPath()
+	if path == "" {
+		path = "/"
+	}
+	id, _ := router.lifecycle.begin(host, r.Method, path)
 	if router.observer != nil {
 		router.observer.RequestStarted()
 	}
@@ -51,7 +63,11 @@ func (router *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer inFlight.Dec()
 
 	statusWriter := &statusResponseWriter{ResponseWriter: w}
+	statusWriter.onStart = func(code int) {
+		router.lifecycle.record(LifecycleEvent{ID: id, Phase: LifecycleResponseStarted, At: time.Now(), Host: host, Method: r.Method, Path: path, Status: code, Duration: time.Since(start)})
+	}
 	defer func() {
+		router.lifecycle.record(LifecycleEvent{ID: id, Phase: LifecycleRequestCompleted, At: time.Now(), Host: host, Method: r.Method, Path: path, Status: statusWriter.statusCodeInt(), Duration: time.Since(start), Cancelled: r.Context().Err() != nil})
 		if router.observer != nil {
 			router.observer.RequestCompleted(host, statusWriter.statusCodeInt(), time.Since(start))
 		}
@@ -106,7 +122,8 @@ func requestHost(hostport string) string {
 
 type statusResponseWriter struct {
 	http.ResponseWriter
-	status int
+	status  int
+	onStart func(int)
 }
 
 func (w *statusResponseWriter) WriteHeader(status int) {
@@ -114,6 +131,9 @@ func (w *statusResponseWriter) WriteHeader(status int) {
 		return
 	}
 	w.status = status
+	if w.onStart != nil {
+		w.onStart(status)
+	}
 	w.ResponseWriter.WriteHeader(status)
 }
 
