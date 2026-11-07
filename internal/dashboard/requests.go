@@ -16,6 +16,7 @@ type Request struct {
 	Started, Responded, Completed time.Time
 	Status                        int
 	DurationMS                    float64
+	TTFBMS                        float64
 	Cancelled                     bool
 }
 
@@ -50,6 +51,15 @@ func GroupRequests(events []statushttp.RequestEvent) []Request {
 	result := make([]Request, 0, len(byID))
 	for _, r := range byID {
 		result = append(result, *r)
+	}
+	for i := range result {
+		r := &result[i]
+		if !r.Started.IsZero() && !r.Responded.IsZero() {
+			r.TTFBMS = r.Responded.Sub(r.Started).Seconds() * 1000
+			if r.TTFBMS < 0 {
+				r.TTFBMS = 0
+			}
+		}
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].ID > result[j].ID })
 	return result
@@ -106,7 +116,7 @@ func RequestLines(snapshot statushttp.Response, requests []Request, fetchErr err
 	tail := []string{"", "REQUEST DETAIL"}
 	for _, r := range requests {
 		if r.ID == selectedID {
-			tail = append(tail, fmt.Sprintf("ID            %d", r.ID), "Host          "+r.Host, "Method        "+r.Method, "Path          "+r.Path, fmt.Sprintf("Status        %s", requestState(r)), fmt.Sprintf("Duration      %.1fms", r.DurationMS), "Started       "+formatTime(r.Started), "Response      "+formatTime(r.Responded), "Completed     "+formatTime(r.Completed))
+			tail = append(tail, fmt.Sprintf("ID            %d", r.ID), "Host          "+r.Host, "Method        "+r.Method, "Path          "+r.Path, fmt.Sprintf("Status        %s", requestState(r)), fmt.Sprintf("TTFB          %s", requestTTFB(r)), fmt.Sprintf("Duration      %s", requestDuration(r, now)), "Started       "+formatTime(r.Started), "Response      "+formatTime(r.Responded), "Completed     "+formatTime(r.Completed))
 			break
 		}
 	}
@@ -147,7 +157,30 @@ func requestState(r Request) string {
 		return fmt.Sprintf("%d · %.1fms", r.Status, r.DurationMS)
 	}
 	if !r.Responded.IsZero() {
-		return fmt.Sprintf("%d · streaming/active", r.Status)
+		return fmt.Sprintf("%d · ACTIVE", r.Status)
 	}
 	return "WAITING"
+}
+
+// TTFB measures time from request arrival to the first response headers.
+// It does not prove that the upstream streamed its response body.
+func requestTTFB(r Request) string {
+	if r.Started.IsZero() || r.Responded.IsZero() {
+		return "—"
+	}
+	return fmt.Sprintf("%.1fms", r.TTFBMS)
+}
+
+func requestDuration(r Request, now time.Time) string {
+	if !r.Completed.IsZero() {
+		return fmt.Sprintf("%.1fms", r.DurationMS)
+	}
+	if r.Started.IsZero() {
+		return "—"
+	}
+	elapsed := now.Sub(r.Started)
+	if elapsed < 0 {
+		elapsed = 0
+	}
+	return fmt.Sprintf("%.1fms (ongoing)", float64(elapsed)/float64(time.Millisecond))
 }
