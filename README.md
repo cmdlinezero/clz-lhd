@@ -172,6 +172,36 @@ Hostnames are normalized to lowercase and a trailing dot is removed. Invalid hos
 
 An `https://` target means LHD connects **to the upstream using HTTPS**; this is independent of incoming TLS. With a `tls` block, LHD also terminates HTTPS for incoming local requests using the configured certificate and key.
 
+### LAN services and Ollama
+
+An explicit URL target may point to another machine on a trusted LAN, not just a local port. For example, if Ollama is running on a separate machine:
+
+```yaml
+routes:
+  ollama.localhost: http://192.168.1.50:11434
+```
+
+Replace the example IP with your Ollama server's LAN address. Start LHD normally, then check the upstream and list available models:
+
+```bash
+./clz-lhd doctor --config lhd.yaml
+./clz-lhd up --config lhd.yaml
+# In another terminal:
+curl http://ollama.localhost/api/tags
+```
+
+For a model already installed on that machine, test an incremental response (replace `YOUR_MODEL`):
+
+```bash
+curl -N http://ollama.localhost/api/generate \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"YOUR_MODEL","prompt":"Count from one to ten.","stream":true}'
+```
+
+Ollama must listen on an address reachable from the LHD machine, and the LAN firewall must permit the connection. Restrict access to trusted clients: Ollama's HTTP API should not be exposed directly to untrusted networks. `doctor` checks TCP reachability, not model availability or API correctness. The proxy forwards streaming HTTP responses incrementally; the `curl -N` option disables curl's output buffering. Incoming HTTPS on LHD does **not** encrypt an `http://` LAN upstream hop—use an HTTPS upstream or a trusted network when confidentiality is required.
+
+LHD preserves the original request `Host` header when proxying. If your Ollama deployment or another upstream rejects `ollama.localhost` as its Host, that requires separate compatibility handling; this example does not change Host rewriting behaviour.
+
 ## Commands
 
 Commands accept flags only; unexpected positional arguments are rejected.

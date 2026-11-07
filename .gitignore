@@ -5,3 +5,6 @@
 /*.patch
 /*.tar.gz
 .lhd
+
+# MacOS
+.DS_Store
