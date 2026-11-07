@@ -33,11 +33,19 @@ func NewRouter(routes []config.Route) *Router {
 
 // NewRouterWithStatus creates a router that also records live runtime status.
 func NewRouterWithStatus(routes []config.Route, observer statusObserver) *Router {
+	return NewRouterWithRecorder(routes, observer, NewLifecycleRecorder(defaultLifecycleCapacity))
+}
+
+// NewRouterWithRecorder shares lifecycle history with read-only local clients.
+func NewRouterWithRecorder(routes []config.Route, observer statusObserver, recorder *LifecycleRecorder) *Router {
+	if recorder == nil {
+		recorder = NewLifecycleRecorder(defaultLifecycleCapacity)
+	}
 	byHost := make(map[string]config.Route, len(routes))
 	for _, route := range routes {
 		byHost[route.Host] = route
 	}
-	return &Router{routes: byHost, observer: observer, lifecycle: NewLifecycleRecorder(defaultLifecycleCapacity)}
+	return &Router{routes: byHost, observer: observer, lifecycle: recorder}
 }
 
 // LifecycleSnapshot returns a copy of recent request lifecycle events.

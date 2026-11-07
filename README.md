@@ -146,6 +146,9 @@ The HTTP and HTTPS proxy listeners use TCP. The status API is separate and binds
 
 The status API is read-only and versioned at `http://127.0.0.1:9099/v1/status`. It returns the current listener, route, reachability, request, and 60-second traffic snapshot as JSON. Change its loopback port with `--status-port`; LHD fails startup if that port is unavailable rather than silently disabling live status.
 
+Recent request lifecycle metadata is available from `GET http://127.0.0.1:9099/v1/requests` (on the same loopback-only status port). The JSON response is an object containing an `events` array, **newest first**, capped at 256 events across HTTP and HTTPS proxy listeners. Each event includes `id` (request correlation ID), `phase` (`request_started`, `response_started`, or `request_completed`), `at` (timestamp), `host`, `method`, `path`, `status`, `duration_ms`, and `cancelled`. Status is `0` before a response starts; duration is `0` on request start. `cancelled` indicates request-context cancellation at completion. The array is empty when no requests have been observed. Query strings, headers, and request/response bodies are not stored or returned, but **URL paths may themselves contain sensitive information**. Keep the local status listener private; do not expose it publicly. This endpoint is a bounded snapshot, not a lossless event stream; polling may miss events during heavy traffic.
+
+
 The incoming LHD listener ports are separate from upstream application ports such as `3000` and `4000`. Exposing only the HTTPS listener externally is fine when clients do not need direct HTTP access, but LHD still starts its HTTP listener and `/metrics` remains available there.
 
 ## Configuration

@@ -2,8 +2,12 @@ package statushttp
 
 import (
 	"encoding/json"
+	"github.com/cmdlinezero/clz-lhd/internal/config"
+	"github.com/cmdlinezero/clz-lhd/internal/proxy"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -71,4 +75,97 @@ func TestStatusAPIIsReadOnly(t *testing.T) {
 	if recorder.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusMethodNotAllowed)
 	}
+}
+
+func TestRequestsEndpointNewestFirstAndRedacted(t *testing.T) {
+	recorder := proxy.NewLifecycleRecorder(3)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer upstream.Close()
+	route, err := config.ParseRoute("api.localhost=" + upstream.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := proxy.NewRouterWithRecorder([]config.Route{route}, nil, recorder)
+	request := httptest.NewRequest(http.MethodGet, "http://api.localhost/private?token=supersecret", nil)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("proxy status = %d", response.Code)
+	}
+
+	api := NewHandler(fakeSnapshotter{}, recorder)
+	w := httptest.NewRecorder()
+	api.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/requests", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	if w.Header().Get("Cache-Control") != "no-store" {
+		t.Fatal("missing no-store")
+	}
+	if strings.Contains(w.Body.String(), "supersecret") {
+		t.Fatal("query string leaked")
+	}
+	var result RequestsResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Events) != 3 {
+		t.Fatalf("events = %+v", result.Events)
+	}
+	want := []proxy.LifecyclePhase{proxy.LifecycleRequestCompleted, proxy.LifecycleResponseStarted, proxy.LifecycleRequestStarted}
+	for i, event := range result.Events {
+		if event.Phase != want[i] || event.Path != "/private" || event.Host != "api.localhost" || event.ID == 0 {
+			t.Fatalf("event %d = %+v", i, event)
+		}
+		if i > 0 && event.At.After(result.Events[i-1].At) {
+			t.Fatal("not newest first")
+		}
+	}
+	if result.Events[0].Status != http.StatusAccepted || result.Events[1].Status != http.StatusAccepted || result.Events[2].Status != 0 {
+		t.Fatalf("statuses = %+v", result.Events)
+	}
+	for _, method := range []string{http.MethodPost, http.MethodDelete} {
+		w := httptest.NewRecorder()
+		api.ServeHTTP(w, httptest.NewRequest(method, "/v1/requests", nil))
+		if w.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("%s status = %d", method, w.Code)
+		}
+	}
+}
+
+func TestRequestsEndpointEmptyAndBounded(t *testing.T) {
+	recorder := proxy.NewLifecycleRecorder(2)
+	api := NewHandler(fakeSnapshotter{}, recorder)
+	check := func(want int) {
+		t.Helper()
+		w := httptest.NewRecorder()
+		api.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/requests", nil))
+		var result RequestsResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Events) != want {
+			t.Fatalf("len = %d, want %d", len(result.Events), want)
+		}
+	}
+	check(0)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	defer upstream.Close()
+	route, err := config.ParseRoute("api.localhost=" + upstream.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := proxy.NewRouterWithRecorder([]config.Route{route}, nil, recorder)
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "http://api.localhost/", nil))
+		}()
+	}
+	wg.Wait()
+	check(2)
 }

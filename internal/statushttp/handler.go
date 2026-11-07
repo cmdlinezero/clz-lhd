@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/cmdlinezero/clz-lhd/internal/proxy"
 	"github.com/cmdlinezero/clz-lhd/internal/status"
 )
 
@@ -15,13 +16,49 @@ type snapshotter interface {
 }
 
 // NewHandler returns the versioned read-only status API.
-func NewHandler(model snapshotter) http.Handler {
+func NewHandler(model snapshotter, recorder ...interface{ Snapshot() []proxy.LifecycleEvent }) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/status", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(NewResponse(model.Snapshot()))
 	})
+	if len(recorder) > 0 && recorder[0] != nil {
+		mux.HandleFunc("GET /v1/requests", func(w http.ResponseWriter, _ *http.Request) {
+			events := recorder[0].Snapshot()
+			result := make([]RequestEvent, 0, len(events))
+			for i := len(events) - 1; i >= 0; i-- {
+				e := events[i]
+				result = append(result, RequestEvent{
+					ID: e.ID, Phase: e.Phase, At: e.At, Host: e.Host,
+					Method: e.Method, Path: e.Path, Status: e.Status,
+					DurationMS: float64(e.Duration) / float64(time.Millisecond),
+					Cancelled:  e.Cancelled,
+				})
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Cache-Control", "no-store")
+			_ = json.NewEncoder(w).Encode(RequestsResponse{Events: result})
+		})
+	}
 	return mux
+}
+
+// RequestsResponse contains a newest-first, bounded snapshot of lifecycle events.
+type RequestsResponse struct {
+	Events []RequestEvent `json:"events"`
+}
+
+// RequestEvent is the stable JSON representation of a lifecycle milestone.
+type RequestEvent struct {
+	ID         uint64               `json:"id"`
+	Phase      proxy.LifecyclePhase `json:"phase"`
+	At         time.Time            `json:"at"`
+	Host       string               `json:"host"`
+	Method     string               `json:"method"`
+	Path       string               `json:"path"`
+	Status     int                  `json:"status"`
+	DurationMS float64              `json:"duration_ms"`
+	Cancelled  bool                 `json:"cancelled"`
 }
 
 type Response struct {
