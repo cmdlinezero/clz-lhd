@@ -45,21 +45,39 @@ func runDashboard(ctx context.Context, client *statusclient.Client) error {
 	selection := dashboard.Selection{}
 	var snapshot statushttp.Response
 	var fetchErr error
+	var requests []dashboard.Request
+	var requestsErr error
+	requestSelection := dashboard.RequestSelection{}
+	showRequests := false
 
 	ticker := time.NewTicker(dashboardRefresh)
 	defer ticker.Stop()
 
 	redraw := func() {
 		width, height := screen.Size()
-		drawDashboard(screen, dashboard.Lines(snapshot, fetchErr, selection.Host, width, height, time.Now()))
+		if showRequests {
+			err := fetchErr
+			if err == nil {
+				err = requestsErr
+			}
+			drawDashboard(screen, dashboard.RequestLines(snapshot, requests, err, requestSelection.ID, width, height, time.Now()))
+		} else {
+			drawDashboard(screen, dashboard.Lines(snapshot, fetchErr, selection.Host, width, height, time.Now()))
+		}
 	}
 	refresh := func() {
 		fetchCtx, cancel := context.WithTimeout(ctx, 750*time.Millisecond)
 		snapshot, fetchErr = client.Snapshot(fetchCtx)
-		cancel()
 		if fetchErr == nil {
 			selection.Normalize(snapshot.Routes)
+			var result statushttp.RequestsResponse
+			result, requestsErr = client.Requests(fetchCtx)
+			if requestsErr == nil {
+				requests = dashboard.GroupRequests(result.Events)
+				requestSelection.Normalize(requests)
+			}
 		}
+		cancel()
 		redraw()
 	}
 	refresh()
@@ -79,20 +97,41 @@ func runDashboard(ctx context.Context, client *statusclient.Client) error {
 				screen.Sync()
 				redraw()
 			case *tcell.EventKey:
+				if event.Key() == tcell.KeyTab {
+					showRequests = !showRequests
+					redraw()
+					continue
+				}
 				switch event.Str() {
 				case "q":
 					return nil
 				case "j":
-					selection.Move(snapshot.Routes, 1)
+					if showRequests {
+						requestSelection.Move(requests, 1)
+					} else {
+						selection.Move(snapshot.Routes, 1)
+					}
 					redraw()
 				case "k":
-					selection.Move(snapshot.Routes, -1)
+					if showRequests {
+						requestSelection.Move(requests, -1)
+					} else {
+						selection.Move(snapshot.Routes, -1)
+					}
 					redraw()
 				case "g":
-					selection.First(snapshot.Routes)
+					if showRequests {
+						requestSelection.First(requests)
+					} else {
+						selection.First(snapshot.Routes)
+					}
 					redraw()
 				case "G":
-					selection.Last(snapshot.Routes)
+					if showRequests {
+						requestSelection.Last(requests)
+					} else {
+						selection.Last(snapshot.Routes)
+					}
 					redraw()
 				}
 				if event.Key() == tcell.KeyCtrlC {

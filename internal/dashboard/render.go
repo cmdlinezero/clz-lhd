@@ -20,7 +20,7 @@ func Lines(snapshot statushttp.Response, fetchErr error, selectedHost string, wi
 
 	lines := []string{"CLZ LHD"}
 	if fetchErr != nil {
-		lines = append(lines, "", "○ DISCONNECTED", trim("Status API: "+fetchErr.Error(), width), "", "j/k [ navigate ]    g/G [ first/last ]   q [ quit ]")
+		lines = append(lines, "", "○ DISCONNECTED", trim("Status API: "+fetchErr.Error(), width), "", "Tab [ routes/requests ]    j/k [ navigate ]    g/G [ first/last ]   q [ quit ]")
 		return fit(lines, width, height)
 	}
 
@@ -46,7 +46,7 @@ func Lines(snapshot statushttp.Response, fetchErr error, selectedHost string, wi
 	if age < 0 {
 		age = 0
 	}
-	tail = append(tail, trim(fmt.Sprintf("j/k [ navigate ]    g/G [ first/last ]   q [ quit ]    updated %s ago", age), width))
+	tail = append(tail, trim(fmt.Sprintf("Tab [ routes/requests ]    j/k [ navigate ]    g/G [ first/last ]   q [ quit ]    updated %s ago", age), width))
 
 	availableRoutes := max(0, height-len(lines)-len(tail))
 	for _, route := range visibleRoutes(snapshot.Routes, selectedHost, availableRoutes) {
