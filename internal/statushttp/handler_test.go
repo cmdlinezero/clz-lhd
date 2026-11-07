@@ -169,3 +169,14 @@ func TestRequestsEndpointEmptyAndBounded(t *testing.T) {
 	wg.Wait()
 	check(2)
 }
+
+func TestRCStatusSnapshotIsNotCached(t *testing.T) {
+	w := httptest.NewRecorder()
+	NewHandler(fakeSnapshotter{}).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/status", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	if got := w.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("Cache-Control = %q", got)
+	}
+}
