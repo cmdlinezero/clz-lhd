@@ -185,3 +185,15 @@ Manual checks with a running LHD instance and a management token:
 
 Legacy API responses with missing `owner` are treated as untrusted for
 worktree reuse/removal. The shared management token is not an owner identity.
+
+## Patch 43: MCP read-only foundation
+
+Run `go test ./...`, `go test -race ./...`, `go vet ./...`, and
+`go build ./...`. Protocol tests verify initialization, tool discovery,
+read-only API calls, notifications, malformed JSON and error responses.
+
+With LHD running, configure an MCP stdio client to launch `clz-lhd mcp`
+(or `clz-lhd --status-port 9099 mcp`). Verify that it lists only
+`lhd_list_routes` and `lhd_get_status`, returns route ownership and status,
+and cannot create, update or remove routes. Stop LHD and confirm tool calls
+return errors rather than fabricating data. No management token is needed.

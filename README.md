@@ -510,3 +510,19 @@ These checks use a snapshot of the route list and are **not atomic** with
 route creation or deletion. They cannot prevent a simultaneous client from
 changing a route or claiming a port. Ownership is still asserted by any
 holder of the shared management token, not cryptographically proven.
+
+### Patch 43: read-only MCP over stdio
+
+Run `clz-lhd mcp` as an MCP stdio server in your agent's MCP configuration.
+The LHD daemon must already be running. The command uses the existing
+`--status-port` flag (default `9099`) and connects only to `127.0.0.1`.
+It offers `lhd_list_routes` (GET `/v1/routes`) and `lhd_get_status`
+(GET `/v1/status`). Both tools take an empty argument object and return
+JSON as MCP text content. API failures are returned as MCP tool errors.
+
+MCP messages are newline-delimited JSON-RPC 2.0 over stdin/stdout; stdout
+is reserved for protocol responses. This initial implementation supports
+`initialize`, `ping`, `tools/list`, and `tools/call`, plus notifications.
+There are **no MCP mutation tools**, and `LHD_MANAGEMENT_TOKEN` is neither
+required nor used. Do not expose this stdio process to untrusted remote
+clients: the read-only API can reveal local hostnames, targets and activity.
