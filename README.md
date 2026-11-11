@@ -362,3 +362,132 @@ The global `--port` / `-p` flag defaults to `80`, `--status-port` selects the lo
 CLZ LHD is licensed under the GNU General Public License v3.0. See [LICENSE](/LICENSE).
 
 (c) 2026 [cmdlinezero](https://cmdlinezero.dev)
+
+### Runtime route registry (v0.6 development)
+
+The proxy package now includes an internal concurrency-safe registry for
+configured and temporary routes. Configured routes cannot be overwritten or
+removed by runtime operations; temporary routes are validated using the same
+host and target rules as YAML/CLI routes. An in-flight request keeps its chosen
+upstream even if the registry changes. This is **not yet a user-facing feature**:
+`clz-lhd up` shares its registry between HTTP and HTTPS listeners; the status API and dashboard
+track runtime route changes. Runtime management and status integration
+will be added in subsequent patches.
+
+### Runtime route management (v0.6 development)
+
+When `clz-lhd up` starts, its HTTP and HTTPS listeners now share one route
+registry. The loopback-only status listener exposes `GET /v1/routes` with
+`routes` entries containing `host`, `target`, and `source` (`config` or
+`runtime`). Temporary route mutations are **disabled by default**. To enable
+them, set a strong secret `LHD_MANAGEMENT_TOKEN` in the LHD server environment.
+Keep this token private; it authorizes access to arbitrary upstream URLs.
+
+Mutations require `Authorization: Bearer <token>`, an HTTP Host of `localhost`
+or `127.0.0.1` (optionally with the status port), and no browser `Origin` or
+`Sec-Fetch-Site` header. They use JSON bodies and return `204` on success:
+
+```sh
+curl -X POST http://127.0.0.1:9099/v1/routes \
+  -H "Authorization: Bearer $LHD_MANAGEMENT_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"host":"demo.localhost","target":"http://127.0.0.1:5173"}'
+# PUT /v1/routes with the same JSON updates an existing runtime route.
+curl -X DELETE http://127.0.0.1:9099/v1/routes/demo.localhost \
+  -H "Authorization: Bearer $LHD_MANAGEMENT_TOKEN"
+```
+
+Configured routes cannot be overwritten or removed. Runtime changes are
+in-memory only and disappear on restart. Already-running requests retain the
+upstream chosen when they began. Both `/v1/status` and the TUI reflect runtime
+route additions and removals. Do not expose the status/management port through
+an external proxy or tunnel: a bearer token and loopback binding are not a
+substitute for an appropriately isolated management interface.
+
+### Live route management CLI (v0.6 development)
+
+The `route` command still starts the proxy when called without a subcommand.
+When LHD is already running, manage temporary routes through the authenticated
+loopback API instead:
+
+```bash
+export LHD_MANAGEMENT_TOKEN='your-strong-token' # same token used to start LHD
+clz-lhd route add demo.localhost http://127.0.0.1:5173
+clz-lhd route update demo.localhost http://127.0.0.1:5174
+clz-lhd routes --live
+clz-lhd route remove demo.localhost
+```
+
+Use `--status-port` if the management listener is not on port 9099. The `routes`
+command without `--live` continues to read the YAML configuration. Live
+mutations require the token in both the server and CLI environments; they do
+not modify YAML and disappear on restart. Errors from the management API,
+including authorization failures and configured-route conflicts, are shown
+without printing the token. See `unit-test.md` for verification steps.
+
+### Git worktree identity (experimental, v0.6)
+
+From a Git worktree, run `clz-lhd worktree info` to inspect its proposed
+`.localhost` hostname. The name combines a sanitized branch (or `main` /
+`detached`), a deterministic worktree-path hash, and the repository name.
+Linked worktrees with the same sanitized branch label therefore normally get
+different hostnames. The hash is not a reservation or absolute collision
+guarantee. This command does **not** register a route, allocate a port, or
+launch a service; those capabilities are planned for subsequent patches.
+See [`unit-test.md`](unit-test.md) for worktree verification steps.
+
+### Worktree port environment (experimental, v0.6)
+
+With `clz-lhd up` running and `LHD_MANAGEMENT_TOKEN` configured in both
+shells, run this **from the current Git worktree**:
+
+```sh
+eval "$(clz-lhd worktree env)"
+printf 'Worktree URL: %s (port %s)\n' "$LHD_URL" "$LHD_PORT"
+```
+
+The command registers only the current worktree, then prints POSIX shell
+exports for `PORT`, `LHD_PORT`, `LHD_HOST`, and `LHD_URL`. It does **not** start
+an application or modify Git. To serve a test directory, optionally run
+`python3 -m http.server "$LHD_PORT"` and visit `$LHD_URL`; Python is not a
+runtime or test dependency of LHD. Applications may use `LHD_PORT` or `PORT`
+according to their own configuration.
+
+The allocation is stable while the runtime route exists, and it avoids ports
+in existing loopback routes and ports currently bound on loopback. Routes are
+in-memory and disappear when LHD restarts. Port probing is **not an exclusive
+reservation**: concurrent worktrees can race for the same free port, and a
+separate process can bind before the application starts. A configured route
+with the same hostname is never overwritten. Do not use `eval` with untrusted
+command output. Errors go to stderr; stdout contains shell exports only on
+success.
+
+### Worktree route lifecycle (experimental, v0.6)
+
+`clz-lhd worktree list` queries the running local management API and lists
+runtime routes whose hostnames match the worktree naming convention and whose
+targets are loopback HTTP(S) URLs with explicit ports. Each line shows the
+hostname, assigned port, and upstream target. This is a **hostname-based
+heuristic**, not verified Git ownership: the management API does not store
+worktree metadata yet. It can include manually created routes with matching
+names, and cannot discover worktrees that have no registered route.
+
+From inside a worktree, `clz-lhd worktree remove` unregisters only its current
+hostname if it is a runtime route with a loopback HTTP(S) target. It requires
+`LHD_MANAGEMENT_TOKEN`, refuses configured YAML routes, and reports a missing
+route without error. It does **not** delete a Git worktree, stop its application,
+or release an operating-system port reservation (none exists). A deleted Git
+worktree cannot be selected using this command; use `clz-lhd route remove
+<host>` for explicit manual cleanup of an orphaned runtime route. All runtime
+routes disappear on LHD restart; no automatic orphan detection is performed.
+
+### v0.6 worktree route safety boundary
+
+Worktree commands only recognize canonical `http://127.0.0.1:<port>`
+upstreams in the assigned range 20000–49999. Other runtime routes, even
+those with a worktree-shaped hostname, are not managed by these commands.
+This check is **not ownership verification**: a manually created route with
+the same hostname and canonical target can still be mistaken for a worktree
+route. Review `clz-lhd routes --live` before cleanup; explicit ownership
+metadata is a future improvement. Port availability checks are not leases,
+and all runtime routes disappear on LHD restart.

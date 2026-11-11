@@ -15,7 +15,7 @@ import (
 
 // Router proxies requests according to their Host header.
 type Router struct {
-	routes    map[string]config.Route
+	routes    *RouteRegistry
 	observer  statusObserver
 	lifecycle *LifecycleRecorder
 }
@@ -41,11 +41,19 @@ func NewRouterWithRecorder(routes []config.Route, observer statusObserver, recor
 	if recorder == nil {
 		recorder = NewLifecycleRecorder(defaultLifecycleCapacity)
 	}
-	byHost := make(map[string]config.Route, len(routes))
-	for _, route := range routes {
-		byHost[route.Host] = route
+	return NewRouterWithRegistry(NewRouteRegistry(routes), observer, recorder)
+}
+
+// NewRouterWithRegistry uses a shared runtime registry. Multiple routers may
+// share the same registry (for example HTTP and HTTPS listeners).
+func NewRouterWithRegistry(registry *RouteRegistry, observer statusObserver, recorder *LifecycleRecorder) *Router {
+	if registry == nil {
+		registry = NewRouteRegistry(nil)
 	}
-	return &Router{routes: byHost, observer: observer, lifecycle: recorder}
+	if recorder == nil {
+		recorder = NewLifecycleRecorder(defaultLifecycleCapacity)
+	}
+	return &Router{routes: registry, observer: observer, lifecycle: recorder}
 }
 
 // LifecycleSnapshot returns a copy of recent request lifecycle events.
@@ -81,7 +89,7 @@ func (router *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	route, ok := router.routes[host]
+	route, ok := router.routes.Lookup(host)
 	if !ok {
 		http.Error(statusWriter, "Proxy: Host not configured", http.StatusNotFound)
 		return
