@@ -84,7 +84,7 @@ func TestWorktreeEnvRefusesNoncanonicalExistingRoute(t *testing.T) {
 			w.WriteHeader(http.StatusConflict)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"routes": []managedRoute{{Host: "feature.repo.localhost", Target: "http://localhost:23456", Source: "runtime"}}})
+		_ = json.NewEncoder(w).Encode(map[string]any{"routes": []managedRoute{{Host: "feature.repo.localhost", Target: "http://localhost:23456", Source: "runtime", Owner: "worktree"}}})
 	}))
 	defer closeServer()
 	_, err := prepareWorktreeEnv(client, worktree.Info{Root: "/tmp/feature", Host: "feature.repo.localhost"}, func(int) bool { return true })
@@ -96,5 +96,65 @@ func TestWorktreeEnvRefusesNoncanonicalExistingRoute(t *testing.T) {
 func TestWorktreeShellQuote(t *testing.T) {
 	if got := shellQuote("a'b"); got != "'a'\\''b'" {
 		t.Fatal(got)
+	}
+}
+
+func TestWorktreeEnvAvoidsOtherLoopbackTargets(t *testing.T) {
+	const busyPort = 23456
+	var registered managedRoute
+	client, closeServer := worktreeClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{"routes": []managedRoute{{Host: "manual.localhost", Target: "http://localhost:23456", Source: "runtime", Owner: "manual"}}})
+		case http.MethodPost:
+			if err := json.NewDecoder(r.Body).Decode(&registered); err != nil {
+				t.Error(err)
+			}
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Errorf("unexpected request %s", r.Method)
+		}
+	}))
+	defer closeServer()
+	_, err := prepareWorktreeEnv(client, worktree.Info{Root: "/tmp/feature", Host: "feature.repo.localhost"}, func(port int) bool { return port == busyPort || port == busyPort+1 })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if registered.Target != "http://127.0.0.1:23457" {
+		t.Fatalf("assigned conflicting port: %s", registered.Target)
+	}
+}
+
+func TestWorktreeEnvRefusesSharedPortReuse(t *testing.T) {
+	const host = "feature.repo.localhost"
+	client, closeServer := worktreeClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("unexpected mutation: %s", r.Method)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"routes": []managedRoute{
+			{Host: host, Target: "http://127.0.0.1:23456", Source: "runtime", Owner: "worktree"},
+			{Host: "other.localhost", Target: "https://[::1]:23456", Source: "runtime", Owner: "manual"},
+		}})
+	}))
+	defer closeServer()
+	_, err := prepareWorktreeEnv(client, worktree.Info{Root: "/tmp/feature", Host: host}, func(int) bool { return true })
+	if err == nil || !strings.Contains(err.Error(), "also registered") {
+		t.Fatalf("expected port collision refusal, got %v", err)
+	}
+}
+
+func TestWorktreeEnvRefusesLegacyMissingOwner(t *testing.T) {
+	client, closeServer := worktreeClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("unexpected mutation: %s", r.Method)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"routes": []managedRoute{{Host: "feature.repo.localhost", Target: "http://127.0.0.1:23456", Source: "runtime"}}})
+	}))
+	defer closeServer()
+	_, err := prepareWorktreeEnv(client, worktree.Info{Root: "/tmp/feature", Host: "feature.repo.localhost"}, func(int) bool { return true })
+	if err == nil || !strings.Contains(err.Error(), "not owned by worktree") {
+		t.Fatalf("expected legacy ownership refusal, got %v", err)
 	}
 }

@@ -98,3 +98,37 @@ func TestManagementDisabledWithoutToken(t *testing.T) {
 		t.Fatalf("disabled mutation: %d", w.Code)
 	}
 }
+
+func TestManagementOwnershipIsolation(t *testing.T) {
+	registry := proxy.NewRouteRegistry(nil)
+	handler := NewManagementHandler(status.New(nil), proxy.NewLifecycleRecorder(1), registry, "secret")
+	call := func(method, path, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, "http://127.0.0.1:9099"+path, strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer secret")
+		if body != "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		return w
+	}
+	const owned = `{"host":"branch.localhost","target":"http://127.0.0.1:23456","owner":"worktree"}`
+	if w := call("POST", "/v1/routes", owned); w.Code != 204 {
+		t.Fatalf("create: %d %s", w.Code, w.Body.String())
+	}
+	if w := call("PUT", "/v1/routes", `{"host":"branch.localhost","target":"http://127.0.0.1:23457"}`); w.Code != 409 {
+		t.Fatalf("cross-owner update: %d", w.Code)
+	}
+	if w := call("DELETE", "/v1/routes/branch.localhost", ""); w.Code != 409 {
+		t.Fatalf("cross-owner delete: %d", w.Code)
+	}
+	if w := call("GET", "/v1/routes", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"owner":"worktree"`) {
+		t.Fatalf("owner listing: %d %s", w.Code, w.Body.String())
+	}
+	if w := call("DELETE", "/v1/routes/branch.localhost?owner=worktree", ""); w.Code != 204 {
+		t.Fatalf("owned delete: %d %s", w.Code, w.Body.String())
+	}
+	if w := call("POST", "/v1/routes", `{"host":"branch.localhost","target":"http://127.0.0.1:23456","owner":"alien"}`); w.Code != 400 {
+		t.Fatalf("invalid owner: %d", w.Code)
+	}
+}

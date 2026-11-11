@@ -464,30 +464,140 @@ success.
 
 ### Worktree route lifecycle (experimental, v0.6)
 
-`clz-lhd worktree list` queries the running local management API and lists
-runtime routes whose hostnames match the worktree naming convention and whose
-targets are loopback HTTP(S) URLs with explicit ports. Each line shows the
-hostname, assigned port, and upstream target. This is a **hostname-based
-heuristic**, not verified Git ownership: the management API does not store
-worktree metadata yet. It can include manually created routes with matching
-names, and cannot discover worktrees that have no registered route.
+`clz-lhd worktree list` queries the running management API and displays only
+runtime routes explicitly marked `owner: worktree`, with worktree-shaped
+hostnames and canonical `http://127.0.0.1:<port>` targets in 20000–49999.
+The list shows hostname, port, and target; it does not enumerate Git worktrees.
 
-From inside a worktree, `clz-lhd worktree remove` unregisters only its current
-hostname if it is a runtime route with a loopback HTTP(S) target. It requires
-`LHD_MANAGEMENT_TOKEN`, refuses configured YAML routes, and reports a missing
-route without error. It does **not** delete a Git worktree, stop its application,
-or release an operating-system port reservation (none exists). A deleted Git
-worktree cannot be selected using this command; use `clz-lhd route remove
-<host>` for explicit manual cleanup of an orphaned runtime route. All runtime
-routes disappear on LHD restart; no automatic orphan detection is performed.
+From inside a worktree, `clz-lhd worktree remove` unregisters the current
+hostname only when its runtime owner is `worktree` and its target is canonical.
+Missing routes are reported without error. Configured, manual-owned, legacy
+ownerless, and noncanonical routes are refused. Neither command deletes a Git
+worktree or stops a process. Runtime routes and ownership disappear on restart.
+Orphaned worktree routes from deleted worktrees require deliberate management
+API cleanup by a client authorized to specify the worktree owner.
 
-### v0.6 worktree route safety boundary
+Port availability is best-effort, not a reservation. Concurrent registration
+can race, and ownership labels are not distinct security identities.
 
-Worktree commands only recognize canonical `http://127.0.0.1:<port>`
-upstreams in the assigned range 20000–49999. Other runtime routes, even
-those with a worktree-shaped hostname, are not managed by these commands.
-This check is **not ownership verification**: a manually created route with
-the same hostname and canonical target can still be mistaken for a worktree
-route. Review `clz-lhd routes --live` before cleanup; explicit ownership
-metadata is a future improvement. Port availability checks are not leases,
-and all runtime routes disappear on LHD restart.
+### v0.7 development: explicit runtime route ownership (Patch 41)
+
+Runtime routes now carry an `owner` field (`manual` or `worktree`) in
+`GET /v1/routes`. Existing API clients that omit `owner` create and mutate
+`manual` routes, preserving the previous default. Worktree registration sends
+`"owner":"worktree"`; worktree cleanup requests
+`DELETE /v1/routes/{host}?owner=worktree`. Updates and deletes are rejected
+with HTTP 409 when the supplied owner differs from the recorded owner.
+Configured YAML routes remain protected and are reported with `source: config`
+without a runtime owner. Ownership is ephemeral and resets on restart.
+
+**Security scope:** Ownership is a registry-level integrity check, not an
+independent authorization credential. Any client holding the shared
+`LHD_MANAGEMENT_TOKEN` can supply `owner=worktree` or `"owner":"worktree"`.
+Do not grant the token to mutually untrusted clients. Explicit per-client
+identities and capabilities are out of scope for Patch 41.
+
+### Patch 42: worktree ownership hardening
+
+Worktree environment setup refuses to reuse an existing worktree port when
+another registered loopback HTTP(S) route already targets the same port.
+New assignments avoid ports used by **any** registered loopback HTTP(S)
+upstream with an explicit port, including noncanonical `localhost` and IPv6
+loopback targets. Missing `owner` in a legacy API response is treated as
+unknown, not implicitly as `worktree`: reuse and removal fail closed.
+
+These checks use a snapshot of the route list and are **not atomic** with
+route creation or deletion. They cannot prevent a simultaneous client from
+changing a route or claiming a port. Ownership is still asserted by any
+holder of the shared management token, not cryptographically proven.
+
+### Patch 43: read-only MCP over stdio
+
+Run `clz-lhd mcp` as an MCP stdio server in your agent's MCP configuration.
+The LHD daemon must already be running. The command uses the existing
+`--status-port` flag (default `9099`) and connects only to `127.0.0.1`.
+It offers `lhd_list_routes` (GET `/v1/routes`) and `lhd_get_status`
+(GET `/v1/status`). Both tools take an empty argument object and return
+JSON as MCP text content. API failures are returned as MCP tool errors.
+
+MCP messages are newline-delimited JSON-RPC 2.0 over stdin/stdout; stdout
+is reserved for protocol responses. This initial implementation supports
+`initialize`, `ping`, `tools/list`, and `tools/call`, plus notifications.
+There are **no MCP mutation tools**, and `LHD_MANAGEMENT_TOKEN` is neither
+required nor used. Do not expose this stdio process to untrusted remote
+clients: the read-only API can reveal local hostnames, targets and activity.
+
+### Patch 44: MCP read-only transport hardening and authorization boundary
+
+The built-in MCP HTTP client connects directly to IPv4 loopback, ignores
+`HTTP_PROXY`/`HTTPS_PROXY` environment settings, and refuses HTTP redirects.
+MCP still exposes **only** `lhd_list_routes` and `lhd_get_status`; the
+management token is not read or forwarded. These controls prevent the
+read-only bridge from following a local API redirect to another network
+endpoint. A custom injected HTTP client is intended for tests only.
+
+**Design for future MCP mutations (not implemented in Patch 44):** a shared
+management bearer token is an administrative credential, not an identity
+for individual agents. `manual` and `worktree` owner labels are routing
+metadata, not security principals. Before adding MCP write tools, introduce
+a distinct credential/capability boundary, enforce permissions in the
+management API (not just the MCP CLI), and validate allowed target schemes,
+addresses and ports. Do not give untrusted MCP clients the management token.
+
+### Restricted agent route credential (Patch 45)
+
+Set `LHD_AGENT_TOKEN` to a distinct secret to enable restricted agent
+mutations on the loopback management API. This is **not** the unrestricted
+`LHD_MANAGEMENT_TOKEN`: requests authenticated by the agent credential must
+explicitly specify `"owner":"agent"` for POST/PUT and `?owner=agent` for
+DELETE. Agent-owned routes must use a `.localhost` hostname and a canonical
+`http://127.0.0.1:<port>` upstream with port 1024–65535. Agents cannot
+modify manual, worktree, or YAML routes. The administrator credential retains
+full control. If the two tokens are identical, the agent credential is disabled.
+
+MCP remains **read-only** in this patch: `clz-lhd mcp` does not read either
+credential or expose mutation tools. Do not pass administrator credentials to
+untrusted agents. Agent tokens are shared bearer credentials, not per-agent
+identities; mutually untrusted agents require separate isolation in a future
+release. Runtime routes and tokens are not persisted across LHD restarts.
+
+### Patch 46: opt-in MCP agent route mutations
+
+By default `clz-lhd mcp` still advertises only `lhd_list_routes` and
+`lhd_get_status`. To expose the three restricted write tools, configure the
+running LHD server with a distinct `LHD_AGENT_TOKEN`, then launch the MCP
+process with the same token and `clz-lhd mcp --enable-agent-writes`.
+
+The added tools are `lhd_create_route` and `lhd_update_route` (both require
+`host` and `target` strings), and `lhd_remove_route` (requires `host`).
+They always request `owner=agent` and use the agent token, never the admin
+token. The management API enforces the `.localhost` hostname, canonical
+`http://127.0.0.1:<port>` target (1024–65535), and owner restrictions.
+The tools return MCP `isError` results for API failures. The flag refuses
+missing agent credentials or a token matching `LHD_MANAGEMENT_TOKEN`.
+
+**Security:** The agent token is shared among all clients configured with it.
+This is not per-agent isolation. Do not grant the admin token to an MCP agent;
+keep the status API bound to loopback. MCP mutation tools are not advertised
+unless explicitly opted in.
+
+### MCP route visibility (Patch 46a)
+
+After starting LHD with `LHD_AGENT_TOKEN` and creating an agent route using
+`clz-lhd mcp --enable-agent-writes`, verify registration using both
+`curl -sS http://127.0.0.1:9099/v1/routes` and `clz-lhd routes --live`.
+The live CLI table now includes an `OWNER` column (`manual`, `worktree`,
+`agent`; `-` for YAML-configured routes). All registered routes appear
+regardless of owner. The automated MCP integration test exercises the real
+management handler and route registry, rather than a mocked success reply.
+
+### v0.7.0 MCP release verification
+
+Before tagging, run the automated MCP audit in `unit-test.md` and verify the
+full create/update/remove lifecycle through a running `clz-lhd up` instance.
+`clz-lhd mcp` remains read-only unless `--enable-agent-writes` is supplied
+with `LHD_AGENT_TOKEN`. The agent token is shared by all clients that receive
+it; it does **not** isolate mutually untrusted agents. Agent route ownership
+and target restrictions are enforced by the loopback management API.
+Runtime routes are ephemeral across LHD restarts. Concurrent worktree port
+assignment is best-effort, not an exclusive reservation.

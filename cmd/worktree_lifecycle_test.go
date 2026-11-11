@@ -11,11 +11,11 @@ import (
 
 func TestWorktreeRoutesFiltersAndSorts(t *testing.T) {
 	routes := []managedRoute{
-		{Host: "z-123456789a.repo.localhost", Target: "http://127.0.0.1:23456", Source: "runtime"},
-		{Host: "a-123456789a.repo.localhost", Target: "http://127.0.0.1:23457", Source: "runtime"},
+		{Host: "z-123456789a.repo.localhost", Target: "http://127.0.0.1:23456", Source: "runtime", Owner: "worktree"},
+		{Host: "a-123456789a.repo.localhost", Target: "http://127.0.0.1:23457", Source: "runtime", Owner: "worktree"},
 		{Host: "b-123456789a.repo.localhost", Target: "http://127.0.0.1:23458", Source: "config"},
-		{Host: "ordinary.localhost", Target: "http://127.0.0.1:23459", Source: "runtime"},
-		{Host: "x-123456789a.repo.localhost", Target: "http://remote:23460", Source: "runtime"},
+		{Host: "ordinary.localhost", Target: "http://127.0.0.1:23459", Source: "runtime", Owner: "worktree"},
+		{Host: "x-123456789a.repo.localhost", Target: "http://remote:23460", Source: "runtime", Owner: "worktree"},
 	}
 	got := worktreeRoutes(routes)
 	if len(got) != 2 || got[0].Host != "a-123456789a.repo.localhost" || got[1].Host != "z-123456789a.repo.localhost" {
@@ -33,11 +33,13 @@ func TestRemoveWorktreeRoute(t *testing.T) {
 		wantError   string
 		wantDeletes int
 	}{
-		{name: "success", routes: []managedRoute{{Host: host, Target: "http://127.0.0.1:23456", Source: "runtime"}}, wantRemoved: true, wantDeletes: 1},
+		{name: "success", routes: []managedRoute{{Host: host, Target: "http://127.0.0.1:23456", Source: "runtime", Owner: "worktree"}}, wantRemoved: true, wantDeletes: 1},
 		{name: "absent"},
+		{name: "legacy missing owner protected", routes: []managedRoute{{Host: host, Target: "http://127.0.0.1:23456", Source: "runtime"}}, wantError: "not owned"},
+		{name: "manual ownership protected", routes: []managedRoute{{Host: host, Target: "http://127.0.0.1:23456", Source: "runtime", Owner: "manual"}}, wantError: "not owned"},
 		{name: "yaml protected", routes: []managedRoute{{Host: host, Target: "http://127.0.0.1:23456", Source: "config"}}, wantError: "configuration"},
-		{name: "non loopback protected", routes: []managedRoute{{Host: host, Target: "http://example.com:23456", Source: "runtime"}}, wantError: "canonical"},
-		{name: "manual loopback route protected", routes: []managedRoute{{Host: host, Target: "http://localhost:23456", Source: "runtime"}}, wantError: "canonical"},
+		{name: "non loopback protected", routes: []managedRoute{{Host: host, Target: "http://example.com:23456", Source: "runtime", Owner: "worktree"}}, wantError: "canonical"},
+		{name: "manual loopback route protected", routes: []managedRoute{{Host: host, Target: "http://localhost:23456", Source: "runtime", Owner: "worktree"}}, wantError: "canonical"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			deletes := 0
@@ -48,7 +50,7 @@ func TestRemoveWorktreeRoute(t *testing.T) {
 				}
 				if r.Method == http.MethodDelete {
 					deletes++
-					if r.URL.Path != "/v1/routes/"+host || r.Header.Get("Authorization") != "Bearer secret" {
+					if r.URL.Path != "/v1/routes/"+host || r.URL.Query().Get("owner") != "worktree" || r.Header.Get("Authorization") != "Bearer secret" {
 						t.Errorf("unexpected delete: %s %s", r.URL.Path, r.Header.Get("Authorization"))
 					}
 					w.WriteHeader(http.StatusNoContent)

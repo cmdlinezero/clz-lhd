@@ -33,3 +33,22 @@ func mustURL(t *testing.T, raw string) *url.URL {
 	}
 	return u
 }
+
+func TestLiveRoutesSummaryIncludesAllOwners(t *testing.T) {
+	data := []byte(`{"routes":[{"host":"work.localhost","target":"http://127.0.0.1:20000","source":"runtime","owner":"worktree"},{"host":"agent.localhost","target":"http://127.0.0.1:34567","source":"runtime","owner":"agent"},{"host":"config.localhost","target":"http://localhost:3000","source":"config"},{"host":"manual.localhost","target":"http://localhost:4000","source":"runtime","owner":"manual"}]}`)
+	got, err := liveRoutesSummary(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "HOST\tTARGET\tSOURCE\tOWNER\n" +
+		"agent.localhost\thttp://127.0.0.1:34567\truntime\tagent\n" +
+		"config.localhost\thttp://localhost:3000\tconfig\t-\n" +
+		"manual.localhost\thttp://localhost:4000\truntime\tmanual\n" +
+		"work.localhost\thttp://127.0.0.1:20000\truntime\tworktree\n"
+	if got != want {
+		t.Fatalf("live routes = %q, want %q", got, want)
+	}
+	if _, err := liveRoutesSummary([]byte("broken")); err == nil {
+		t.Fatal("invalid JSON accepted")
+	}
+}

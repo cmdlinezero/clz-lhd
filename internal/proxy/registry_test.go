@@ -114,3 +114,27 @@ func TestRegistryConcurrentAccess(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestRegistryExplicitOwnership(t *testing.T) {
+	r := NewRouteRegistry(nil)
+	const spec = "feature.localhost=http://127.0.0.1:23456"
+	if err := r.CreateOwned(spec, OwnerWorktree); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Update(spec); !errors.Is(err, ErrRouteOwner) {
+		t.Fatalf("manual update: %v", err)
+	}
+	if err := r.Remove("feature.localhost"); !errors.Is(err, ErrRouteOwner) {
+		t.Fatalf("manual remove: %v", err)
+	}
+	entries := r.SnapshotOwned()
+	if len(entries) != 1 || entries[0].Owner != OwnerWorktree {
+		t.Fatalf("snapshot: %+v", entries)
+	}
+	if err := r.RemoveOwned("feature.localhost", OwnerWorktree); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.CreateOwned(spec, "unknown"); !errors.Is(err, ErrInvalidOwner) {
+		t.Fatalf("invalid owner: %v", err)
+	}
+}
