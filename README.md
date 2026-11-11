@@ -424,3 +424,14 @@ mutations require the token in both the server and CLI environments; they do
 not modify YAML and disappear on restart. Errors from the management API,
 including authorization failures and configured-route conflicts, are shown
 without printing the token. See `unit-test.md` for verification steps.
+
+### Git worktree identity (experimental, v0.6)
+
+From a Git worktree, run `clz-lhd worktree info` to inspect its proposed
+`.localhost` hostname. The name combines a sanitized branch (or `main` /
+`detached`), a deterministic worktree-path hash, and the repository name.
+Linked worktrees with the same sanitized branch label therefore normally get
+different hostnames. The hash is not a reservation or absolute collision
+guarantee. This command does **not** register a route, allocate a port, or
+launch a service; those capabilities are planned for subsequent patches.
+See [`unit-test.md`](unit-test.md) for worktree verification steps.

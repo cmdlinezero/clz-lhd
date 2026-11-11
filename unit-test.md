@@ -49,3 +49,17 @@ clz-lhd route remove demo.localhost
 
 Runtime routes are ephemeral. A restart clears them. The management API must
 remain bound to loopback; do not expose the token or management listener.
+
+## Git worktree discovery (Patch 37)
+
+```bash
+go test -count=1 -v ./internal/worktree ./cmd
+clz-lhd worktree info
+```
+
+Run `clz-lhd worktree info` from the main worktree, a linked worktree, and
+inside a nested directory. Confirm that the hostname stays stable within one
+worktree and differs between worktrees. In detached HEAD, the hostname should
+start with `detached-`. This command only prints a proposed hostname: it does
+not reserve ports, register routes, or start services. The suffix is a truncated
+path hash and does not constitute a globally guaranteed collision-free name.
