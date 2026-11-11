@@ -12,7 +12,7 @@ import (
 func TestWorktreeRoutesFiltersAndSorts(t *testing.T) {
 	routes := []managedRoute{
 		{Host: "z-123456789a.repo.localhost", Target: "http://127.0.0.1:23456", Source: "runtime"},
-		{Host: "a-123456789a.repo.localhost", Target: "http://localhost:23457", Source: "runtime"},
+		{Host: "a-123456789a.repo.localhost", Target: "http://127.0.0.1:23457", Source: "runtime"},
 		{Host: "b-123456789a.repo.localhost", Target: "http://127.0.0.1:23458", Source: "config"},
 		{Host: "ordinary.localhost", Target: "http://127.0.0.1:23459", Source: "runtime"},
 		{Host: "x-123456789a.repo.localhost", Target: "http://remote:23460", Source: "runtime"},
@@ -36,7 +36,8 @@ func TestRemoveWorktreeRoute(t *testing.T) {
 		{name: "success", routes: []managedRoute{{Host: host, Target: "http://127.0.0.1:23456", Source: "runtime"}}, wantRemoved: true, wantDeletes: 1},
 		{name: "absent"},
 		{name: "yaml protected", routes: []managedRoute{{Host: host, Target: "http://127.0.0.1:23456", Source: "config"}}, wantError: "configuration"},
-		{name: "non loopback protected", routes: []managedRoute{{Host: host, Target: "http://example.com:23456", Source: "runtime"}}, wantError: "loopback"},
+		{name: "non loopback protected", routes: []managedRoute{{Host: host, Target: "http://example.com:23456", Source: "runtime"}}, wantError: "canonical"},
+		{name: "manual loopback route protected", routes: []managedRoute{{Host: host, Target: "http://localhost:23456", Source: "runtime"}}, wantError: "canonical"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			deletes := 0

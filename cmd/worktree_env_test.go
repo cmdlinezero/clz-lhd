@@ -77,6 +77,22 @@ func TestWorktreeEnvConflictAndNoPartialOutput(t *testing.T) {
 		t.Fatal("missing token accepted")
 	}
 }
+func TestWorktreeEnvRefusesNoncanonicalExistingRoute(t *testing.T) {
+	client, closeServer := worktreeClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("unexpected mutation: %s", r.Method)
+			w.WriteHeader(http.StatusConflict)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"routes": []managedRoute{{Host: "feature.repo.localhost", Target: "http://localhost:23456", Source: "runtime"}}})
+	}))
+	defer closeServer()
+	_, err := prepareWorktreeEnv(client, worktree.Info{Root: "/tmp/feature", Host: "feature.repo.localhost"}, func(int) bool { return true })
+	if err == nil || !strings.Contains(err.Error(), "canonical") {
+		t.Fatalf("expected canonical target refusal, got %v", err)
+	}
+}
+
 func TestWorktreeShellQuote(t *testing.T) {
 	if got := shellQuote("a'b"); got != "'a'\\''b'" {
 		t.Fatal(got)

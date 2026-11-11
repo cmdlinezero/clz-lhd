@@ -21,7 +21,7 @@ func worktreeRoutes(routes []managedRoute) []managedRoute {
 		if r.Source != "runtime" || !worktreeHostPattern.MatchString(r.Host) {
 			continue
 		}
-		if _, ok := worktree.LoopbackPort(r.Target); !ok {
+		if _, ok := worktree.ManagedTargetPort(r.Target); !ok {
 			continue
 		}
 		result = append(result, r)
@@ -48,8 +48,8 @@ func removeWorktreeRoute(client routeAPIClient, info worktree.Info) (bool, error
 		if !worktreeHostPattern.MatchString(r.Host) {
 			return false, fmt.Errorf("route %s is not a worktree-style hostname", info.Host)
 		}
-		if _, ok := worktree.LoopbackPort(r.Target); !ok {
-			return false, fmt.Errorf("route %s is not a loopback HTTP(S) worktree target; refusing removal", info.Host)
+		if _, ok := worktree.ManagedTargetPort(r.Target); !ok {
+			return false, fmt.Errorf("route %s is not a canonical LHD worktree target; refusing removal", info.Host)
 		}
 		_, err = client.request(http.MethodDelete, "/v1/routes/"+url.PathEscape(info.Host), nil)
 		if err != nil {
@@ -72,7 +72,7 @@ func init() {
 			return err
 		}
 		for _, r := range matches {
-			port, _ := worktree.LoopbackPort(r.Target)
+			port, _ := worktree.ManagedTargetPort(r.Target)
 			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s\t%d\t%s\n", r.Host, port, r.Target); err != nil {
 				return err
 			}

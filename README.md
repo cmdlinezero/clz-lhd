@@ -480,3 +480,14 @@ or release an operating-system port reservation (none exists). A deleted Git
 worktree cannot be selected using this command; use `clz-lhd route remove
 <host>` for explicit manual cleanup of an orphaned runtime route. All runtime
 routes disappear on LHD restart; no automatic orphan detection is performed.
+
+### v0.6 worktree route safety boundary
+
+Worktree commands only recognize canonical `http://127.0.0.1:<port>`
+upstreams in the assigned range 20000–49999. Other runtime routes, even
+those with a worktree-shaped hostname, are not managed by these commands.
+This check is **not ownership verification**: a manually created route with
+the same hostname and canonical target can still be mistaken for a worktree
+route. Review `clz-lhd routes --live` before cleanup; explicit ownership
+metadata is a future improvement. Port availability checks are not leases,
+and all runtime routes disappear on LHD restart.

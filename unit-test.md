@@ -107,3 +107,34 @@ Manual checks (Git and a running LHD instance required; no Node.js):
 
 `worktree list` recognizes hostname patterns, not proven Git ownership.
 Orphaned routes from deleted worktrees require explicit `route remove <host>`.
+
+## v0.6.0 release-candidate checks (Patch 40)
+
+```sh
+go clean -testcache
+go test ./...
+go test -race ./...
+go vet ./...
+go build ./...
+git diff --check
+```
+
+In addition to the manual route and worktree checks above, verify:
+
+1. Both HTTP and HTTPS use new, updated and removed runtime routes immediately.
+2. A request already in flight finishes after its route is updated or removed.
+3. Missing or invalid tokens and browser-originated mutations are rejected.
+4. YAML routes cannot be updated or removed by management or worktree commands.
+5. `worktree list` excludes noncanonical targets (for example `localhost`
+   rather than `127.0.0.1`, or ports outside 20000–49999).
+6. `worktree remove` refuses a noncanonical route even if its hostname matches.
+7. Two worktrees get distinct names and normally distinct ports; remember that
+   port checks are best-effort and not exclusive reservations.
+8. Restart clears runtime routes and their assignments without modifying Git
+   worktrees or stopping application processes.
+
+**Known limitation:** canonical hostname/target checks cannot prove ownership.
+A manually registered route with the same worktree-shaped hostname and
+canonical target can still be removed by `worktree remove`. Do not treat
+worktree commands as an authorization boundary; they use the same management
+token as other route mutations.
