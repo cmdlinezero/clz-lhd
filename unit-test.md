@@ -264,3 +264,50 @@ Manual smoke test (two terminals):
 Note: earlier `routes --live` output lacking the agent route may have been
 captured before the API update became visible; the CLI previously did not
 filter by owner. This patch adds explicit owner display and regression tests.
+
+## Patch 47: v0.7.0 MCP integration and security audit
+
+Run the focused tests without caching, followed by the complete suite:
+
+```sh
+go test ./internal/mcp -run 'TestAudit|TestAgentMutationLifecycleThroughManagementAPI|TestProtocol' -count=1 -v
+go clean -testcache
+go test ./...
+go test -race ./...
+go vet ./...
+go build ./...
+git diff --check
+```
+
+The audit checks that malformed MCP write arguments never reach HTTP,
+read-only MCP cannot mutate a live management API, and concurrent attempts
+to create the same agent hostname yield exactly one successful registration.
+The existing lifecycle integration test checks create/update/delete, API
+persistence, agent ownership, invalid targets and cross-owner rejection.
+
+Manual release check (two terminals):
+
+1. Start `clz-lhd up` with distinct `LHD_MANAGEMENT_TOKEN` and
+   `LHD_AGENT_TOKEN` values. Verify `curl -fsS http://127.0.0.1:9099/v1/status`.
+2. In another terminal, run `clz-lhd mcp` from an MCP client and verify only
+   `lhd_list_routes` and `lhd_get_status` appear. Attempting a write tool
+   must fail as unknown.
+3. Restart the MCP client with `clz-lhd mcp --enable-agent-writes` and the
+   same agent token as the server. Verify five tools appear. Create a unique
+   `.localhost` route targeting `http://127.0.0.1:34567`.
+4. Check `curl -fsS http://127.0.0.1:9099/v1/routes` and
+   `clz-lhd routes --live`: both must show `source=runtime`, `owner=agent`.
+   Update its target and verify both views again; then remove it and verify
+   it disappears. Use a new hostname if an earlier test left a route behind.
+5. With an incorrect agent token, verify mutations fail. Try updating a
+   configured, manual or worktree-owned route: all must be rejected without
+   changing the route. Test an external upstream target: it must be rejected.
+6. Restart LHD: runtime routes are ephemeral and must not survive the restart.
+   Confirm configured routes remain. Confirm HTTP and HTTPS proxy routing
+   against a running local upstream where applicable.
+
+Release limitations: agent tokens are shared credentials, not individual
+agent identities. Port assignment is best-effort rather than an atomic
+reservation. MCP uses newline-delimited JSON-RPC over stdio; verify client
+compatibility with the selected MCP host before releasing. Do not commit
+real token values or expose the management API beyond loopback.

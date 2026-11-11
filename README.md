@@ -590,3 +590,14 @@ The live CLI table now includes an `OWNER` column (`manual`, `worktree`,
 `agent`; `-` for YAML-configured routes). All registered routes appear
 regardless of owner. The automated MCP integration test exercises the real
 management handler and route registry, rather than a mocked success reply.
+
+### v0.7.0 MCP release verification
+
+Before tagging, run the automated MCP audit in `unit-test.md` and verify the
+full create/update/remove lifecycle through a running `clz-lhd up` instance.
+`clz-lhd mcp` remains read-only unless `--enable-agent-writes` is supplied
+with `LHD_AGENT_TOKEN`. The agent token is shared by all clients that receive
+it; it does **not** isolate mutually untrusted agents. Agent route ownership
+and target restrictions are enforced by the loopback management API.
+Runtime routes are ephemeral across LHD restarts. Concurrent worktree port
+assignment is best-effort, not an exclusive reservation.
