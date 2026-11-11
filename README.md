@@ -464,34 +464,21 @@ success.
 
 ### Worktree route lifecycle (experimental, v0.6)
 
-`clz-lhd worktree list` queries the running local management API and lists
-runtime routes whose hostnames match the worktree naming convention and whose
-targets are loopback HTTP(S) URLs with explicit ports. Each line shows the
-hostname, assigned port, and upstream target. This is a **hostname-based
-heuristic**, not verified Git ownership: the management API does not store
-worktree metadata yet. It can include manually created routes with matching
-names, and cannot discover worktrees that have no registered route.
+`clz-lhd worktree list` queries the running management API and displays only
+runtime routes explicitly marked `owner: worktree`, with worktree-shaped
+hostnames and canonical `http://127.0.0.1:<port>` targets in 20000–49999.
+The list shows hostname, port, and target; it does not enumerate Git worktrees.
 
-From inside a worktree, `clz-lhd worktree remove` unregisters only its current
-hostname if it is a runtime route with a loopback HTTP(S) target. It requires
-`LHD_MANAGEMENT_TOKEN`, refuses configured YAML routes, and reports a missing
-route without error. It does **not** delete a Git worktree, stop its application,
-or release an operating-system port reservation (none exists). A deleted Git
-worktree cannot be selected using this command; use `clz-lhd route remove
-<host>` for explicit manual cleanup of an orphaned runtime route. All runtime
-routes disappear on LHD restart; no automatic orphan detection is performed.
+From inside a worktree, `clz-lhd worktree remove` unregisters the current
+hostname only when its runtime owner is `worktree` and its target is canonical.
+Missing routes are reported without error. Configured, manual-owned, legacy
+ownerless, and noncanonical routes are refused. Neither command deletes a Git
+worktree or stops a process. Runtime routes and ownership disappear on restart.
+Orphaned worktree routes from deleted worktrees require deliberate management
+API cleanup by a client authorized to specify the worktree owner.
 
-### v0.6 worktree route safety boundary
-
-Worktree commands only recognize canonical `http://127.0.0.1:<port>`
-upstreams in the assigned range 20000–49999. Other runtime routes, even
-those with a worktree-shaped hostname, are not managed by these commands.
-This check is **not ownership verification**: a manually created route with
-the same hostname and canonical target can still be mistaken for a worktree
-route. Review `clz-lhd routes --live` before cleanup; explicit ownership
-metadata is a future improvement. Port availability checks are not leases,
-and all runtime routes disappear on LHD restart.
-
+Port availability is best-effort, not a reservation. Concurrent registration
+can race, and ownership labels are not distinct security identities.
 
 ### v0.7 development: explicit runtime route ownership (Patch 41)
 
@@ -509,3 +496,17 @@ independent authorization credential. Any client holding the shared
 `LHD_MANAGEMENT_TOKEN` can supply `owner=worktree` or `"owner":"worktree"`.
 Do not grant the token to mutually untrusted clients. Explicit per-client
 identities and capabilities are out of scope for Patch 41.
+
+### Patch 42: worktree ownership hardening
+
+Worktree environment setup refuses to reuse an existing worktree port when
+another registered loopback HTTP(S) route already targets the same port.
+New assignments avoid ports used by **any** registered loopback HTTP(S)
+upstream with an explicit port, including noncanonical `localhost` and IPv6
+loopback targets. Missing `owner` in a legacy API response is treated as
+unknown, not implicitly as `worktree`: reuse and removal fail closed.
+
+These checks use a snapshot of the route list and are **not atomic** with
+route creation or deletion. They cannot prevent a simultaneous client from
+changing a route or claiming a port. Ownership is still asserted by any
+holder of the shared management token, not cryptographically proven.

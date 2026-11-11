@@ -54,7 +54,7 @@ func prepareWorktreeEnv(client routeAPIClient, info worktree.Info, available fun
 	}
 	used := make(map[int]bool)
 	for _, r := range routes {
-		port, ok := worktree.ManagedTargetPort(r.Target)
+		port, ok := worktree.LoopbackPort(r.Target)
 		if ok {
 			used[port] = true
 		}
@@ -67,8 +67,17 @@ func prepareWorktreeEnv(client routeAPIClient, info worktree.Info, available fun
 		if r.Owner != "worktree" {
 			return "", fmt.Errorf("existing worktree route %s is not owned by worktree", info.Host)
 		}
+		port, ok = worktree.ManagedTargetPort(r.Target)
 		if !ok {
 			return "", fmt.Errorf("existing worktree route %s is not a canonical LHD worktree target", info.Host)
+		}
+		for _, other := range routes {
+			if other.Host == info.Host {
+				continue
+			}
+			if otherPort, valid := worktree.LoopbackPort(other.Target); valid && otherPort == port {
+				return "", fmt.Errorf("worktree port %d is also registered to %s; refusing reuse", port, other.Host)
+			}
 		}
 		// Reuse existing registration even if the application is currently listening.
 		return worktreeExports(info.Host, port), nil

@@ -35,6 +35,7 @@ func TestRemoveWorktreeRoute(t *testing.T) {
 	}{
 		{name: "success", routes: []managedRoute{{Host: host, Target: "http://127.0.0.1:23456", Source: "runtime", Owner: "worktree"}}, wantRemoved: true, wantDeletes: 1},
 		{name: "absent"},
+		{name: "legacy missing owner protected", routes: []managedRoute{{Host: host, Target: "http://127.0.0.1:23456", Source: "runtime"}}, wantError: "not owned"},
 		{name: "manual ownership protected", routes: []managedRoute{{Host: host, Target: "http://127.0.0.1:23456", Source: "runtime", Owner: "manual"}}, wantError: "not owned"},
 		{name: "yaml protected", routes: []managedRoute{{Host: host, Target: "http://127.0.0.1:23456", Source: "config"}}, wantError: "configuration"},
 		{name: "non loopback protected", routes: []managedRoute{{Host: host, Target: "http://example.com:23456", Source: "runtime", Owner: "worktree"}}, wantError: "canonical"},

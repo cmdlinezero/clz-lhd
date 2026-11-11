@@ -161,3 +161,27 @@ Ownership is not a separate authentication boundary: a holder of the shared
 management token can explicitly request another owner. Concurrent port
 allocation remains best-effort. The older Patch 40 warning about matching
 hostname/target alone no longer applies to Patch 41-aware servers.
+
+## Patch 42: worktree ownership and port collision regression
+
+Automated Go tests cover rejection of missing-owner legacy routes, refusal
+to reuse a port shared with another loopback route, and avoidance of ports
+used by noncanonical loopback targets. Run `go test ./...`,
+`go test -race ./...`, `go vet ./...`, and `go build ./...`.
+
+Manual checks with a running LHD instance and a management token:
+
+1. Register a normal manual route targeting `http://localhost:23456` and
+   confirm `worktree env` never selects 23456 for a *new* worktree.
+2. Confirm a worktree-owned route appears in `worktree list`; a manual-owned
+   route with a similar hostname does not appear and cannot be removed by
+   `worktree remove`.
+3. Confirm repeated `worktree env` reuses the same unshared route and that
+   `worktree remove` succeeds once, then reports absence.
+4. Restart LHD and confirm runtime registrations are gone; running
+   applications and Git worktree files are unaffected.
+5. For concurrent worktrees, verify the resulting ports manually. The
+   snapshot-based allocation is not an atomic reservation and may race.
+
+Legacy API responses with missing `owner` are treated as untrusted for
+worktree reuse/removal. The shared management token is not an owner identity.
