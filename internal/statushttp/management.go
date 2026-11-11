@@ -6,6 +6,8 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/cmdlinezero/clz-lhd/internal/proxy"
@@ -15,6 +17,15 @@ import (
 // NewManagementHandler extends the read-only status API with authenticated
 // runtime route mutations. An empty token disables all mutations.
 func NewManagementHandler(model *status.Model, recorder interface{ Snapshot() []proxy.LifecycleEvent }, registry *proxy.RouteRegistry, token string) http.Handler {
+	return NewScopedManagementHandler(model, recorder, registry, token, "")
+}
+
+// NewScopedManagementHandler adds a separate restricted agent credential.
+// The agent token is optional and must differ from the administrator token.
+func NewScopedManagementHandler(model *status.Model, recorder interface{ Snapshot() []proxy.LifecycleEvent }, registry *proxy.RouteRegistry, token, agentToken string) http.Handler {
+	if agentToken != "" && agentToken == token {
+		agentToken = ""
+	}
 	mux := http.NewServeMux()
 	mux.Handle("/", NewHandler(model, recorder))
 	mux.HandleFunc("GET /v1/routes", func(w http.ResponseWriter, r *http.Request) {
@@ -49,12 +60,15 @@ func NewManagementHandler(model *status.Model, recorder interface{ Snapshot() []
 			http.Error(w, "management request rejected", http.StatusForbidden)
 			return
 		}
-		if token == "" {
-			http.Error(w, "route mutations disabled: set LHD_MANAGEMENT_TOKEN", http.StatusForbidden)
+		if token == "" && agentToken == "" {
+			http.Error(w, "route mutations disabled", http.StatusForbidden)
 			return
 		}
 		authorization := r.Header.Get("Authorization")
-		if !strings.HasPrefix(authorization, "Bearer ") || subtle.ConstantTimeCompare([]byte(strings.TrimPrefix(authorization, "Bearer ")), []byte(token)) != 1 {
+		credential := strings.TrimPrefix(authorization, "Bearer ")
+		admin := token != "" && strings.HasPrefix(authorization, "Bearer ") && subtle.ConstantTimeCompare([]byte(credential), []byte(token)) == 1
+		agent := agentToken != "" && strings.HasPrefix(authorization, "Bearer ") && subtle.ConstantTimeCompare([]byte(credential), []byte(agentToken)) == 1
+		if !admin && !agent {
 			w.Header().Set("WWW-Authenticate", "Bearer")
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
@@ -82,6 +96,12 @@ func NewManagementHandler(model *status.Model, recorder interface{ Snapshot() []
 			if input.Owner != "" {
 				owner = proxy.RouteOwner(input.Owner)
 			}
+			if agent {
+				if owner != proxy.OwnerAgent || !agentRouteAllowed(input.Host, input.Target) {
+					http.Error(w, "agent route not permitted", http.StatusForbidden)
+					return
+				}
+			}
 			spec := input.Host + "=" + input.Target
 			if action == "create" {
 				err = registry.CreateOwned(spec, owner)
@@ -99,6 +119,10 @@ func NewManagementHandler(model *status.Model, recorder interface{ Snapshot() []
 			owner := proxy.OwnerManual
 			if requested := r.URL.Query().Get("owner"); requested != "" {
 				owner = proxy.RouteOwner(requested)
+			}
+			if agent && (owner != proxy.OwnerAgent || !strings.HasSuffix(strings.ToLower(host), ".localhost")) {
+				http.Error(w, "agent route not permitted", http.StatusForbidden)
+				return
 			}
 			err = registry.RemoveOwned(host, owner)
 			if err == nil {
@@ -130,4 +154,18 @@ func localAuthority(authority string) bool {
 		host = h
 	}
 	return host == "127.0.0.1" || host == "localhost" || host == "[::1]" || host == "::1"
+}
+
+// agentRouteAllowed confines agent routes to .localhost and canonical IPv4
+// loopback HTTP targets with explicit, non-privileged ports. No DNS lookup.
+func agentRouteAllowed(host, target string) bool {
+	if !strings.HasSuffix(host, ".localhost") || strings.ToLower(host) != host {
+		return false
+	}
+	u, err := url.Parse(target)
+	if err != nil || u.Scheme != "http" || u.User != nil || u.Hostname() != "127.0.0.1" || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" {
+		return false
+	}
+	port, err := strconv.Atoi(u.Port())
+	return err == nil && port >= 1024 && port <= 65535 && u.Host == "127.0.0.1:"+strconv.Itoa(port)
 }

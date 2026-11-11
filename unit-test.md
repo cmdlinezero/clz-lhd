@@ -197,3 +197,27 @@ With LHD running, configure an MCP stdio client to launch `clz-lhd mcp`
 `lhd_list_routes` and `lhd_get_status`, returns route ownership and status,
 and cannot create, update or remove routes. Stop LHD and confirm tool calls
 return errors rather than fabricating data. No management token is needed.
+
+## Patch 44: MCP read-only security hardening
+
+Run `go test ./internal/mcp -count=1 -v` followed by `go test ./...`,
+`go test -race ./...`, `go vet ./...`, and `go build ./...`. Regression
+tests confirm that HTTP redirects are not followed and that proxy
+environment variables do not redirect the built-in MCP client.
+
+Manual check: with LHD running, set `HTTP_PROXY` and `HTTPS_PROXY` to a
+nonexistent proxy and run `clz-lhd mcp` from an MCP client. Both read-only
+tools should still work. Verify `tools/list` still exposes exactly two
+tools, with no create/update/delete tools. Do not supply a management token
+to the MCP process. Future mutation authorization is a separate milestone.
+
+## Patch 45: Restricted agent API credential
+
+Run `go test ./internal/statushttp -count=1 -v`, `go test ./...`,
+`go test -race ./...`, `go vet ./...`, and `go build ./...`.
+With different `LHD_MANAGEMENT_TOKEN` and `LHD_AGENT_TOKEN`, confirm agent
+POST/PUT/DELETE succeeds only for `owner=agent` and canonical loopback
+`.localhost` routes. Confirm it cannot mutate manual/worktree/config routes,
+redirect to remote targets, or use a missing/wrong token. With no agent token,
+agent mutations must not be enabled by a separate credential. Check MCP still
+advertises only the two read-only tools. This patch does not add MCP writes.

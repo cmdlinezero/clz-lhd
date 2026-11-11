@@ -26,12 +26,15 @@ type RouteOwner string
 const (
 	OwnerManual   RouteOwner = "manual"
 	OwnerWorktree RouteOwner = "worktree"
+	OwnerAgent    RouteOwner = "agent"
 )
 
 var ErrRouteOwner = errors.New("runtime route owned by another component")
 var ErrInvalidOwner = errors.New("invalid runtime route owner")
 
-func validOwner(owner RouteOwner) bool { return owner == OwnerManual || owner == OwnerWorktree }
+func validOwner(owner RouteOwner) bool {
+	return owner == OwnerManual || owner == OwnerWorktree || owner == OwnerAgent
+}
 
 type RuntimeRoute struct {
 	Route config.Route

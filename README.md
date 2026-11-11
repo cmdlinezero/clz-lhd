@@ -526,3 +526,37 @@ is reserved for protocol responses. This initial implementation supports
 There are **no MCP mutation tools**, and `LHD_MANAGEMENT_TOKEN` is neither
 required nor used. Do not expose this stdio process to untrusted remote
 clients: the read-only API can reveal local hostnames, targets and activity.
+
+### Patch 44: MCP read-only transport hardening and authorization boundary
+
+The built-in MCP HTTP client connects directly to IPv4 loopback, ignores
+`HTTP_PROXY`/`HTTPS_PROXY` environment settings, and refuses HTTP redirects.
+MCP still exposes **only** `lhd_list_routes` and `lhd_get_status`; the
+management token is not read or forwarded. These controls prevent the
+read-only bridge from following a local API redirect to another network
+endpoint. A custom injected HTTP client is intended for tests only.
+
+**Design for future MCP mutations (not implemented in Patch 44):** a shared
+management bearer token is an administrative credential, not an identity
+for individual agents. `manual` and `worktree` owner labels are routing
+metadata, not security principals. Before adding MCP write tools, introduce
+a distinct credential/capability boundary, enforce permissions in the
+management API (not just the MCP CLI), and validate allowed target schemes,
+addresses and ports. Do not give untrusted MCP clients the management token.
+
+### Restricted agent route credential (Patch 45)
+
+Set `LHD_AGENT_TOKEN` to a distinct secret to enable restricted agent
+mutations on the loopback management API. This is **not** the unrestricted
+`LHD_MANAGEMENT_TOKEN`: requests authenticated by the agent credential must
+explicitly specify `"owner":"agent"` for POST/PUT and `?owner=agent` for
+DELETE. Agent-owned routes must use a `.localhost` hostname and a canonical
+`http://127.0.0.1:<port>` upstream with port 1024–65535. Agents cannot
+modify manual, worktree, or YAML routes. The administrator credential retains
+full control. If the two tokens are identical, the agent credential is disabled.
+
+MCP remains **read-only** in this patch: `clz-lhd mcp` does not read either
+credential or expose mutation tools. Do not pass administrator credentials to
+untrusted agents. Agent tokens are shared bearer credentials, not per-agent
+identities; mutually untrusted agents require separate isolation in a future
+release. Runtime routes and tokens are not persisted across LHD restarts.

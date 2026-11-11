@@ -79,7 +79,7 @@ func serveContext(ctx context.Context, port, statusPort string, routes []config.
 	defer statusListener.Close()
 
 	httpServer := &http.Server{Handler: httpHandler}
-	statusServer := &http.Server{Handler: statushttp.NewManagementHandler(liveStatus, lifecycle, registry, os.Getenv("LHD_MANAGEMENT_TOKEN"))}
+	statusServer := &http.Server{Handler: statushttp.NewScopedManagementHandler(liveStatus, lifecycle, registry, os.Getenv("LHD_MANAGEMENT_TOKEN"), os.Getenv("LHD_AGENT_TOKEN"))}
 	servers := []*http.Server{httpServer, statusServer}
 	serveErr := make(chan error, 3)
 	go func() { serveErr <- httpServer.Serve(httpListener) }()
