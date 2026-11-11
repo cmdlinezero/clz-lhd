@@ -491,3 +491,21 @@ the same hostname and canonical target can still be mistaken for a worktree
 route. Review `clz-lhd routes --live` before cleanup; explicit ownership
 metadata is a future improvement. Port availability checks are not leases,
 and all runtime routes disappear on LHD restart.
+
+
+### v0.7 development: explicit runtime route ownership (Patch 41)
+
+Runtime routes now carry an `owner` field (`manual` or `worktree`) in
+`GET /v1/routes`. Existing API clients that omit `owner` create and mutate
+`manual` routes, preserving the previous default. Worktree registration sends
+`"owner":"worktree"`; worktree cleanup requests
+`DELETE /v1/routes/{host}?owner=worktree`. Updates and deletes are rejected
+with HTTP 409 when the supplied owner differs from the recorded owner.
+Configured YAML routes remain protected and are reported with `source: config`
+without a runtime owner. Ownership is ephemeral and resets on restart.
+
+**Security scope:** Ownership is a registry-level integrity check, not an
+independent authorization credential. Any client holding the shared
+`LHD_MANAGEMENT_TOKEN` can supply `owner=worktree` or `"owner":"worktree"`.
+Do not grant the token to mutually untrusted clients. Explicit per-client
+identities and capabilities are out of scope for Patch 41.

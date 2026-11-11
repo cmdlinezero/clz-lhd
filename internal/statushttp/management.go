@@ -26,20 +26,16 @@ func NewManagementHandler(model *status.Model, recorder interface{ Snapshot() []
 			Host   string `json:"host"`
 			Target string `json:"target"`
 			Source string `json:"source"`
+			Owner  string `json:"owner,omitempty"`
 		}
-		configured := make(map[string]bool)
-		// Configured ownership is reported by the registry itself.
-		routes := registry.Snapshot()
-		for _, route := range routes {
-			configured[route.Host] = registry.IsConfigured(route.Host)
-		}
+		routes := registry.SnapshotOwned()
 		result := make([]item, 0, len(routes))
-		for _, route := range routes {
+		for _, entry := range routes {
 			source := "runtime"
-			if configured[route.Host] {
+			if entry.Owner == "" {
 				source = "config"
 			}
-			result = append(result, item{route.Host, route.Target.String(), source})
+			result = append(result, item{Host: entry.Route.Host, Target: entry.Route.Target.String(), Source: source, Owner: string(entry.Owner)})
 		}
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Type", "application/json")
@@ -74,6 +70,7 @@ func NewManagementHandler(model *status.Model, recorder interface{ Snapshot() []
 			var input struct {
 				Host   string `json:"host"`
 				Target string `json:"target"`
+				Owner  string `json:"owner,omitempty"`
 			}
 			decoder := json.NewDecoder(r.Body)
 			decoder.DisallowUnknownFields()
@@ -81,11 +78,15 @@ func NewManagementHandler(model *status.Model, recorder interface{ Snapshot() []
 				http.Error(w, "invalid route JSON", http.StatusBadRequest)
 				return
 			}
+			owner := proxy.OwnerManual
+			if input.Owner != "" {
+				owner = proxy.RouteOwner(input.Owner)
+			}
 			spec := input.Host + "=" + input.Target
 			if action == "create" {
-				err = registry.Create(spec)
+				err = registry.CreateOwned(spec, owner)
 			} else {
-				err = registry.Update(spec)
+				err = registry.UpdateOwned(spec, owner)
 			}
 			if err == nil {
 				route, ok := registry.Lookup(input.Host)
@@ -95,14 +96,18 @@ func NewManagementHandler(model *status.Model, recorder interface{ Snapshot() []
 			}
 		case "delete":
 			host := r.PathValue("host")
-			err = registry.Remove(host)
+			owner := proxy.OwnerManual
+			if requested := r.URL.Query().Get("owner"); requested != "" {
+				owner = proxy.RouteOwner(requested)
+			}
+			err = registry.RemoveOwned(host, owner)
 			if err == nil {
 				model.RemoveRoute(host)
 			}
 		}
 		if err != nil {
 			code := http.StatusBadRequest
-			if errors.Is(err, proxy.ErrConfiguredRoute) || errors.Is(err, proxy.ErrRouteExists) {
+			if errors.Is(err, proxy.ErrConfiguredRoute) || errors.Is(err, proxy.ErrRouteExists) || errors.Is(err, proxy.ErrRouteOwner) {
 				code = http.StatusConflict
 			}
 			if errors.Is(err, proxy.ErrRouteNotFound) {

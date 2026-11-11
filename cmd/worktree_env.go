@@ -16,6 +16,7 @@ type managedRoute struct {
 	Host   string `json:"host"`
 	Target string `json:"target"`
 	Source string `json:"source"`
+	Owner  string `json:"owner,omitempty"`
 }
 
 func listManagedRoutes(client routeAPIClient) ([]managedRoute, error) {
@@ -63,6 +64,9 @@ func prepareWorktreeEnv(client routeAPIClient, info worktree.Info, available fun
 		if r.Source != "runtime" {
 			return "", fmt.Errorf("worktree hostname %s is owned by configuration", info.Host)
 		}
+		if r.Owner != "worktree" {
+			return "", fmt.Errorf("existing worktree route %s is not owned by worktree", info.Host)
+		}
 		if !ok {
 			return "", fmt.Errorf("existing worktree route %s is not a canonical LHD worktree target", info.Host)
 		}
@@ -77,7 +81,8 @@ func prepareWorktreeEnv(client routeAPIClient, info worktree.Info, available fun
 	payload := struct {
 		Host   string `json:"host"`
 		Target string `json:"target"`
-	}{info.Host, target}
+		Owner  string `json:"owner"`
+	}{info.Host, target, "worktree"}
 	if _, err = client.request(http.MethodPost, "/v1/routes", payload); err != nil {
 		return "", fmt.Errorf("register worktree route: %w (no environment exported)", err)
 	}

@@ -18,7 +18,7 @@ var worktreeHostPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?-[
 func worktreeRoutes(routes []managedRoute) []managedRoute {
 	result := make([]managedRoute, 0)
 	for _, r := range routes {
-		if r.Source != "runtime" || !worktreeHostPattern.MatchString(r.Host) {
+		if r.Source != "runtime" || r.Owner != "worktree" || !worktreeHostPattern.MatchString(r.Host) {
 			continue
 		}
 		if _, ok := worktree.ManagedTargetPort(r.Target); !ok {
@@ -45,13 +45,16 @@ func removeWorktreeRoute(client routeAPIClient, info worktree.Info) (bool, error
 		if r.Source != "runtime" {
 			return false, fmt.Errorf("worktree hostname %s is owned by configuration; refusing removal", info.Host)
 		}
+		if r.Owner != "worktree" {
+			return false, fmt.Errorf("route %s is not owned by worktree; refusing removal", info.Host)
+		}
 		if !worktreeHostPattern.MatchString(r.Host) {
 			return false, fmt.Errorf("route %s is not a worktree-style hostname", info.Host)
 		}
 		if _, ok := worktree.ManagedTargetPort(r.Target); !ok {
 			return false, fmt.Errorf("route %s is not a canonical LHD worktree target; refusing removal", info.Host)
 		}
-		_, err = client.request(http.MethodDelete, "/v1/routes/"+url.PathEscape(info.Host), nil)
+		_, err = client.request(http.MethodDelete, "/v1/routes/"+url.PathEscape(info.Host)+"?owner=worktree", nil)
 		if err != nil {
 			return false, fmt.Errorf("remove worktree route: %w", err)
 		}

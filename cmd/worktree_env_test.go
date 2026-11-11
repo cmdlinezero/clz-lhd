@@ -84,7 +84,7 @@ func TestWorktreeEnvRefusesNoncanonicalExistingRoute(t *testing.T) {
 			w.WriteHeader(http.StatusConflict)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"routes": []managedRoute{{Host: "feature.repo.localhost", Target: "http://localhost:23456", Source: "runtime"}}})
+		_ = json.NewEncoder(w).Encode(map[string]any{"routes": []managedRoute{{Host: "feature.repo.localhost", Target: "http://localhost:23456", Source: "runtime", Owner: "worktree"}}})
 	}))
 	defer closeServer()
 	_, err := prepareWorktreeEnv(client, worktree.Info{Root: "/tmp/feature", Host: "feature.repo.localhost"}, func(int) bool { return true })

@@ -138,3 +138,26 @@ A manually registered route with the same worktree-shaped hostname and
 canonical target can still be removed by `worktree remove`. Do not treat
 worktree commands as an authorization boundary; they use the same management
 token as other route mutations.
+
+
+## Patch 41: explicit route ownership
+
+```sh
+go test -count=1 ./internal/proxy ./internal/statushttp ./cmd
+go test -race ./internal/proxy ./internal/statushttp ./cmd
+go vet ./...
+```
+
+1. Register a route using `clz-lhd route add` and verify `GET /v1/routes`
+   reports `"owner":"manual"` for it.
+2. Run `clz-lhd worktree env` and verify its route reports
+   `"owner":"worktree"`; `worktree list` includes it.
+3. Confirm ordinary `clz-lhd route update` and `route remove` return 409
+   for that worktree-owned route, without changing the route.
+4. Confirm `clz-lhd worktree remove` removes the current worktree route.
+5. Restart LHD and confirm runtime routes and ownership are not persisted.
+
+Ownership is not a separate authentication boundary: a holder of the shared
+management token can explicitly request another owner. Concurrent port
+allocation remains best-effort. The older Patch 40 warning about matching
+hostname/target alone no longer applies to Patch 41-aware servers.
