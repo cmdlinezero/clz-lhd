@@ -85,3 +85,25 @@ Manual smoke test (Python is an **optional** HTTP test-server utility):
 
 `eval` is appropriate only for trusted local CLI output. Port checks are
 best-effort, not exclusive leases; a separate process can claim a port later.
+
+## Worktree route lifecycle (Patch 39)
+
+Automated tests use Go only:
+
+```sh
+go test -count=1 ./cmd ./internal/worktree
+go test -race ./cmd ./internal/worktree
+```
+
+Manual checks (Git and a running LHD instance required; no Node.js):
+
+1. Start `clz-lhd up` with `LHD_MANAGEMENT_TOKEN` configured.
+2. In a Git worktree, run `eval "$(clz-lhd worktree env)"`.
+3. Run `clz-lhd worktree list` and verify the hostname, port and target.
+4. Run `clz-lhd worktree remove`, then `clz-lhd worktree list`; verify removal.
+5. Repeat `worktree remove`; it should report no registration, not fail.
+6. Confirm the Git worktree and any running test server are untouched.
+7. Verify YAML-managed routes cannot be removed by `worktree remove`.
+
+`worktree list` recognizes hostname patterns, not proven Git ownership.
+Orphaned routes from deleted worktrees require explicit `route remove <host>`.

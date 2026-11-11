@@ -461,3 +461,22 @@ separate process can bind before the application starts. A configured route
 with the same hostname is never overwritten. Do not use `eval` with untrusted
 command output. Errors go to stderr; stdout contains shell exports only on
 success.
+
+### Worktree route lifecycle (experimental, v0.6)
+
+`clz-lhd worktree list` queries the running local management API and lists
+runtime routes whose hostnames match the worktree naming convention and whose
+targets are loopback HTTP(S) URLs with explicit ports. Each line shows the
+hostname, assigned port, and upstream target. This is a **hostname-based
+heuristic**, not verified Git ownership: the management API does not store
+worktree metadata yet. It can include manually created routes with matching
+names, and cannot discover worktrees that have no registered route.
+
+From inside a worktree, `clz-lhd worktree remove` unregisters only its current
+hostname if it is a runtime route with a loopback HTTP(S) target. It requires
+`LHD_MANAGEMENT_TOKEN`, refuses configured YAML routes, and reports a missing
+route without error. It does **not** delete a Git worktree, stop its application,
+or release an operating-system port reservation (none exists). A deleted Git
+worktree cannot be selected using this command; use `clz-lhd route remove
+<host>` for explicit manual cleanup of an orphaned runtime route. All runtime
+routes disappear on LHD restart; no automatic orphan detection is performed.
