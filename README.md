@@ -362,3 +362,14 @@ The global `--port` / `-p` flag defaults to `80`, `--status-port` selects the lo
 CLZ LHD is licensed under the GNU General Public License v3.0. See [LICENSE](/LICENSE).
 
 (c) 2026 [cmdlinezero](https://cmdlinezero.dev)
+
+### Runtime route registry (v0.6 development)
+
+The proxy package now includes an internal concurrency-safe registry for
+configured and temporary routes. Configured routes cannot be overwritten or
+removed by runtime operations; temporary routes are validated using the same
+host and target rules as YAML/CLI routes. An in-flight request keeps its chosen
+upstream even if the registry changes. This is **not yet a user-facing feature**:
+`clz-lhd up` still uses its startup routes, and the status API and dashboard do
+not yet track runtime route changes. Runtime management and status integration
+will be added in subsequent patches.
