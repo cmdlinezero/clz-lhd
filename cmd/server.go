@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"os/signal"
 	"strings"
 	"syscall"
@@ -43,9 +44,10 @@ func serveTLS(port, statusPort string, routes []config.Route, tlsConfig tlsListe
 
 func serveContext(ctx context.Context, port, statusPort string, routes []config.Route, incomingTLS *tlsListenerConfig) error {
 	liveStatus := status.New(routes)
+	registry := proxy.NewRouteRegistry(routes)
 	lifecycle := proxy.NewLifecycleRecorder(256)
-	httpHandler := newHTTPHandlerWithRecorder(routes, liveStatus, lifecycle)
-	httpsHandler := newHTTPSHandlerWithRecorder(routes, liveStatus, lifecycle)
+	httpHandler := newHTTPHandlerWithRegistry(registry, liveStatus, lifecycle)
+	httpsHandler := proxy.NewRouterWithRegistry(registry, liveStatus, lifecycle)
 
 	httpListener, err := net.Listen("tcp", ":"+port)
 	if err != nil {
@@ -77,7 +79,7 @@ func serveContext(ctx context.Context, port, statusPort string, routes []config.
 	defer statusListener.Close()
 
 	httpServer := &http.Server{Handler: httpHandler}
-	statusServer := &http.Server{Handler: statushttp.NewHandler(liveStatus, lifecycle)}
+	statusServer := &http.Server{Handler: statushttp.NewManagementHandler(liveStatus, lifecycle, registry, os.Getenv("LHD_MANAGEMENT_TOKEN"))}
 	servers := []*http.Server{httpServer, statusServer}
 	serveErr := make(chan error, 3)
 	go func() { serveErr <- httpServer.Serve(httpListener) }()
@@ -104,6 +106,13 @@ func serveContext(ctx context.Context, port, statusPort string, routes []config.
 		}
 		return nil
 	}
+}
+
+func newHTTPHandlerWithRegistry(registry *proxy.RouteRegistry, liveStatus *status.Model, lifecycle *proxy.LifecycleRecorder) http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", promhttp.Handler())
+	mux.Handle("/", proxy.NewRouterWithRegistry(registry, liveStatus, lifecycle))
+	return mux
 }
 
 func newHTTPHandler(routes []config.Route) http.Handler {

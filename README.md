@@ -370,6 +370,36 @@ configured and temporary routes. Configured routes cannot be overwritten or
 removed by runtime operations; temporary routes are validated using the same
 host and target rules as YAML/CLI routes. An in-flight request keeps its chosen
 upstream even if the registry changes. This is **not yet a user-facing feature**:
-`clz-lhd up` still uses its startup routes, and the status API and dashboard do
-not yet track runtime route changes. Runtime management and status integration
+`clz-lhd up` shares its registry between HTTP and HTTPS listeners; the status API and dashboard
+track runtime route changes. Runtime management and status integration
 will be added in subsequent patches.
+
+### Runtime route management (v0.6 development)
+
+When `clz-lhd up` starts, its HTTP and HTTPS listeners now share one route
+registry. The loopback-only status listener exposes `GET /v1/routes` with
+`routes` entries containing `host`, `target`, and `source` (`config` or
+`runtime`). Temporary route mutations are **disabled by default**. To enable
+them, set a strong secret `LHD_MANAGEMENT_TOKEN` in the LHD server environment.
+Keep this token private; it authorizes access to arbitrary upstream URLs.
+
+Mutations require `Authorization: Bearer <token>`, an HTTP Host of `localhost`
+or `127.0.0.1` (optionally with the status port), and no browser `Origin` or
+`Sec-Fetch-Site` header. They use JSON bodies and return `204` on success:
+
+```sh
+curl -X POST http://127.0.0.1:9099/v1/routes \
+  -H "Authorization: Bearer $LHD_MANAGEMENT_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"host":"demo.localhost","target":"http://127.0.0.1:5173"}'
+# PUT /v1/routes with the same JSON updates an existing runtime route.
+curl -X DELETE http://127.0.0.1:9099/v1/routes/demo.localhost \
+  -H "Authorization: Bearer $LHD_MANAGEMENT_TOKEN"
+```
+
+Configured routes cannot be overwritten or removed. Runtime changes are
+in-memory only and disappear on restart. Already-running requests retain the
+upstream chosen when they began. Both `/v1/status` and the TUI reflect runtime
+route additions and removals. Do not expose the status/management port through
+an external proxy or tunnel: a bearer token and loopback binding are not a
+substitute for an appropriately isolated management interface.

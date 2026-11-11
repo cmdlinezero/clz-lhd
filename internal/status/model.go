@@ -89,6 +89,31 @@ func New(routes []config.Route) *Model {
 	return m
 }
 
+// AddRoute makes a newly registered route visible to live status clients.
+func (m *Model) AddRoute(route config.Route) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	previous, exists := m.routes[route.Host]
+	if exists && previous.Target == route.Target.String() {
+		return
+	}
+	if exists {
+		previous.Target = route.Target.String()
+		previous.Reachability = ReachabilityUnknown
+		previous.LastChange = m.now()
+		m.routes[route.Host] = previous
+		return
+	}
+	m.routes[route.Host] = Route{Host: route.Host, Target: route.Target.String(), Reachability: ReachabilityUnknown}
+}
+
+// RemoveRoute removes the live view of a temporary route.
+func (m *Model) RemoveRoute(host string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.routes, host)
+}
+
 // SetListener records whether an incoming listener is currently accepting
 // connections. The protocol must be "http" or "https"; other values are
 // ignored.

@@ -127,3 +127,11 @@ func (r *RouteRegistry) Remove(host string) error {
 	delete(r.runtime, route.Host)
 	return nil
 }
+
+// IsConfigured reports whether a route is owned by the startup configuration.
+func (r *RouteRegistry) IsConfigured(host string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	_, ok := r.configured[host]
+	return ok
+}
