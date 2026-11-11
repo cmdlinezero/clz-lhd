@@ -119,3 +119,64 @@ func TestDefaultClientIgnoresProxyEnvironment(t *testing.T) {
 		t.Fatalf("loopback request failed: %v", replies)
 	}
 }
+
+func TestWriteToolsOptIn(t *testing.T) {
+	readOnly := run(t, Server{Port: "9099"}, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`+"\n"+`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"lhd_create_route","arguments":{"host":"a.localhost","target":"http://127.0.0.1:23000"}}}`+"\n")
+	if len(readOnly[0]["result"].(map[string]any)["tools"].([]any)) != 2 || readOnly[1]["error"] == nil {
+		t.Fatal(readOnly)
+	}
+	enabled := run(t, Server{Port: "9099", AgentToken: "agent-secret"}, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`+"\n")
+	if len(enabled[0]["result"].(map[string]any)["tools"].([]any)) != 5 {
+		t.Fatal(enabled)
+	}
+}
+
+func TestWriteToolHTTPAndValidation(t *testing.T) {
+	var methods []string
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		methods = append(methods, r.Method+" "+r.URL.String())
+		if r.Header.Get("Authorization") != "Bearer agent-secret" {
+			http.Error(w, "unauthorized", 401)
+			return
+		}
+		if r.Method != http.MethodDelete {
+			if r.Header.Get("Content-Type") != "application/json" {
+				t.Error("missing content type")
+			}
+			var v map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&v); err != nil || v["owner"] != "agent" {
+				t.Errorf("invalid body: %v %v", v, err)
+			}
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer api.Close()
+	port := api.Listener.Addr().(*net.TCPAddr).Port
+	s := Server{Port: fmt.Sprint(port), AgentToken: "agent-secret"}
+	input := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"lhd_create_route","arguments":{"host":"agent.localhost","target":"http://127.0.0.1:23000"}}}` + "\n" +
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"lhd_update_route","arguments":{"host":"agent.localhost","target":"http://127.0.0.1:23001"}}}` + "\n" +
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"lhd_remove_route","arguments":{"host":"agent.localhost"}}}` + "\n" +
+		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"lhd_remove_route","arguments":{"host":"agent.localhost","extra":1}}}` + "\n"
+	replies := run(t, s, input)
+	if len(methods) != 3 || methods[0] != "POST /v1/routes" || methods[1] != "PUT /v1/routes" || methods[2] != "DELETE /v1/routes/agent.localhost?owner=agent" {
+		t.Fatal(methods)
+	}
+	for i := 0; i < 3; i++ {
+		if replies[i]["error"] != nil || replies[i]["result"].(map[string]any)["isError"] == true {
+			t.Fatal(replies[i])
+		}
+	}
+	if replies[3]["error"] == nil {
+		t.Fatal(replies[3])
+	}
+}
+
+func TestWriteToolRejectsUnauthorized(t *testing.T) {
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "unauthorized", http.StatusUnauthorized) }))
+	defer api.Close()
+	port := api.Listener.Addr().(*net.TCPAddr).Port
+	replies := run(t, Server{Port: fmt.Sprint(port), AgentToken: "wrong"}, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"lhd_remove_route","arguments":{"host":"agent.localhost"}}}`+"\n")
+	if replies[0]["result"].(map[string]any)["isError"] != true {
+		t.Fatal(replies)
+	}
+}

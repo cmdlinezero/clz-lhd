@@ -221,3 +221,19 @@ POST/PUT/DELETE succeeds only for `owner=agent` and canonical loopback
 redirect to remote targets, or use a missing/wrong token. With no agent token,
 agent mutations must not be enabled by a separate credential. Check MCP still
 advertises only the two read-only tools. This patch does not add MCP writes.
+
+## Patch 46: MCP agent mutation tools
+
+Run `go test ./internal/mcp -count=1 -v`, `go test ./...`,
+`go test -race ./...`, `go vet ./...`, `go build ./...` and
+`git diff --check`.
+
+With LHD running and a distinct `LHD_AGENT_TOKEN` configured for both the
+server and the MCP process, check that `clz-lhd mcp` advertises only two
+read-only tools. Restart MCP using `clz-lhd mcp --enable-agent-writes` and
+check that five tools are advertised. Create, update and remove an
+`agent`-owned `.localhost` route with the three new tools; verify the changes
+with `clz-lhd routes --live`. Confirm attempts to modify a `manual` or
+`worktree` route fail, as do non-loopback upstreams and invalid ports.
+Confirm the flag rejects a missing token and a token equal to the admin token.
+The token is shared, not a per-agent identity.

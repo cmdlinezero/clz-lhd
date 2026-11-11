@@ -1,4 +1,4 @@
-// Package mcp implements a minimal read-only MCP server over newline-delimited
+// Package mcp implements a MCP server over newline-delimited
 // JSON-RPC 2.0 messages on standard input and output.
 package mcp
 
@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -23,6 +24,8 @@ const maxMessage = 1024 * 1024
 type Server struct {
 	Port   string
 	Client *http.Client
+	// AgentToken enables restricted write tools when nonempty.
+	AgentToken string
 }
 
 type request struct {
@@ -108,10 +111,7 @@ func (s Server) handle(ctx context.Context, raw []byte) (response, bool) {
 	case "ping":
 		return success(r.ID, map[string]any{}), true
 	case "tools/list":
-		return success(r.ID, map[string]any{"tools": []any{
-			map[string]any{"name": "lhd_list_routes", "description": "List current LHD routes and their ownership (read only)", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}},
-			map[string]any{"name": "lhd_get_status", "description": "Get current LHD listener, route health, and traffic status (read only)", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}},
-		}}), true
+		return success(r.ID, map[string]any{"tools": s.tools()}), true
 	case "tools/call":
 		var p struct {
 			Name      string          `json:"name"`
@@ -120,9 +120,15 @@ func (s Server) handle(ctx context.Context, raw []byte) (response, bool) {
 		if err := json.Unmarshal(r.Params, &p); err != nil || p.Name == "" {
 			return failure(r.ID, -32602, "invalid tool parameters"), true
 		}
+		if p.Name == "lhd_create_route" || p.Name == "lhd_update_route" || p.Name == "lhd_remove_route" {
+			if s.AgentToken == "" {
+				return failure(r.ID, -32602, "unknown tool"), true
+			}
+			return s.writeTool(ctx, r.ID, p.Name, p.Arguments)
+		}
 		var args map[string]json.RawMessage
 		if len(p.Arguments) > 0 {
-			if err := json.Unmarshal(p.Arguments, &args); err != nil || len(args) > 0 {
+			if err := json.Unmarshal(p.Arguments, &args); err != nil || args == nil || len(args) > 0 {
 				return failure(r.ID, -32602, "tools take no arguments"), true
 			}
 		}
@@ -137,37 +143,104 @@ func (s Server) handle(ctx context.Context, raw []byte) (response, bool) {
 		}
 		data, err := s.readAPI(ctx, path)
 		if err != nil {
-			return success(r.ID, map[string]any{"content": []any{map[string]string{"type": "text", "text": err.Error()}}, "isError": true}), true
+			return toolError(r.ID, err.Error()), true
 		}
 		return success(r.ID, map[string]any{"content": []any{map[string]string{"type": "text", "text": string(data)}}}), true
+
 	default:
 		return failure(r.ID, -32601, "method not found"), true
 	}
 }
 
+func (s Server) tools() []any {
+	tools := []any{
+		map[string]any{"name": "lhd_list_routes", "description": "List current LHD routes and their ownership (read only)", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}},
+		map[string]any{"name": "lhd_get_status", "description": "Get current LHD listener, route health, and traffic status (read only)", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}},
+	}
+	if s.AgentToken != "" {
+		routeProps := map[string]any{"host": map[string]any{"type": "string"}, "target": map[string]any{"type": "string"}}
+		for _, entry := range []struct{ name, description string }{{"lhd_create_route", "Create an agent-owned localhost route"}, {"lhd_update_route", "Update an agent-owned localhost route"}} {
+			tools = append(tools, map[string]any{"name": entry.name, "description": entry.description, "inputSchema": map[string]any{"type": "object", "properties": routeProps, "required": []string{"host", "target"}, "additionalProperties": false}})
+		}
+		tools = append(tools, map[string]any{"name": "lhd_remove_route", "description": "Remove an agent-owned localhost route", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"host": map[string]any{"type": "string"}}, "required": []string{"host"}, "additionalProperties": false}})
+	}
+	return tools
+}
+
+func toolError(id json.RawMessage, message string) response {
+	return success(id, map[string]any{"content": []any{map[string]string{"type": "text", "text": message}}, "isError": true})
+}
+
+func (s Server) writeTool(ctx context.Context, id json.RawMessage, name string, raw json.RawMessage) (response, bool) {
+	var args map[string]json.RawMessage
+	if len(raw) == 0 || json.Unmarshal(raw, &args) != nil || args == nil {
+		return failure(id, -32602, "invalid tool arguments"), true
+	}
+	expected := 2
+	if name == "lhd_remove_route" {
+		expected = 1
+	}
+	if len(args) != expected {
+		return failure(id, -32602, "unexpected tool arguments"), true
+	}
+	var host, target string
+	if json.Unmarshal(args["host"], &host) != nil || host == "" {
+		return failure(id, -32602, "host must be a nonempty string"), true
+	}
+	if expected == 2 && (json.Unmarshal(args["target"], &target) != nil || target == "") {
+		return failure(id, -32602, "target must be a nonempty string"), true
+	}
+	var method, path string
+	var body []byte
+	switch name {
+	case "lhd_create_route":
+		method, path = http.MethodPost, "/v1/routes"
+	case "lhd_update_route":
+		method, path = http.MethodPut, "/v1/routes"
+	case "lhd_remove_route":
+		method, path = http.MethodDelete, "/v1/routes/"+url.PathEscape(host)+"?owner=agent"
+	}
+	if expected == 2 {
+		body, _ = json.Marshal(map[string]string{"host": host, "target": target, "owner": "agent"})
+	}
+	data, err := s.callAPI(ctx, method, path, body, s.AgentToken)
+	if err != nil {
+		return toolError(id, err.Error()), true
+	}
+	_ = data
+	return success(id, map[string]any{"content": []any{map[string]string{"type": "text", "text": "agent route mutation completed"}}}), true
+}
+
 func (s Server) readAPI(ctx context.Context, path string) ([]byte, error) {
+	return s.callAPI(ctx, http.MethodGet, path, nil, "")
+}
+
+func (s Server) callAPI(ctx context.Context, method, path string, body []byte, token string) ([]byte, error) {
 	port, err := strconv.Atoi(s.Port)
 	if err != nil || port < 1 || port > 65535 || strings.Trim(s.Port, "0123456789") != "" {
 		return nil, errors.New("invalid status port")
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d%s", port, path), nil)
+	var reader io.Reader
+	if body != nil {
+		reader = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, fmt.Sprintf("http://127.0.0.1:%d%s", port, path), reader)
 	if err != nil {
 		return nil, err
 	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+		if body != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+	}
 	client := s.Client
 	if client == nil {
-		// Ignore proxy environment variables and restrict the default transport to
-		// the selected IPv4 loopback port, even if a future caller changes the URL.
 		dialer := &net.Dialer{Timeout: 5 * time.Second}
-		client = &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{
-			Proxy: nil,
-			DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
-				return dialer.DialContext(ctx, "tcp", fmt.Sprintf("127.0.0.1:%d", port))
-			},
-		}}
+		client = &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{Proxy: nil, DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+			return dialer.DialContext(ctx, "tcp", fmt.Sprintf("127.0.0.1:%d", port))
+		}}}
 	}
-	// Never follow redirects from the status endpoint to another destination.
-	// Clone injected clients so this policy also applies in tests.
 	restricted := *client
 	restricted.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	resp, err := restricted.Do(req)
@@ -175,18 +248,21 @@ func (s Server) readAPI(ctx context.Context, path string) ([]byte, error) {
 		return nil, fmt.Errorf("LHD status API unavailable: %w", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
+	if method != http.MethodGet && resp.StatusCode == http.StatusNoContent {
+		return nil, nil
+	}
+	if method == http.MethodGet && resp.StatusCode != http.StatusOK || method != http.MethodGet {
 		return nil, fmt.Errorf("LHD status API returned %s", resp.Status)
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxMessage+1))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxMessage+1))
 	if err != nil {
 		return nil, err
 	}
-	if len(body) > maxMessage {
+	if len(data) > maxMessage {
 		return nil, errors.New("LHD status response too large")
 	}
-	if !json.Valid(body) {
+	if !json.Valid(data) {
 		return nil, errors.New("LHD status API returned invalid JSON")
 	}
-	return body, nil
+	return data, nil
 }

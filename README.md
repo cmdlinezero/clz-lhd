@@ -560,3 +560,23 @@ credential or expose mutation tools. Do not pass administrator credentials to
 untrusted agents. Agent tokens are shared bearer credentials, not per-agent
 identities; mutually untrusted agents require separate isolation in a future
 release. Runtime routes and tokens are not persisted across LHD restarts.
+
+### Patch 46: opt-in MCP agent route mutations
+
+By default `clz-lhd mcp` still advertises only `lhd_list_routes` and
+`lhd_get_status`. To expose the three restricted write tools, configure the
+running LHD server with a distinct `LHD_AGENT_TOKEN`, then launch the MCP
+process with the same token and `clz-lhd mcp --enable-agent-writes`.
+
+The added tools are `lhd_create_route` and `lhd_update_route` (both require
+`host` and `target` strings), and `lhd_remove_route` (requires `host`).
+They always request `owner=agent` and use the agent token, never the admin
+token. The management API enforces the `.localhost` hostname, canonical
+`http://127.0.0.1:<port>` target (1024–65535), and owner restrictions.
+The tools return MCP `isError` results for API failures. The flag refuses
+missing agent credentials or a token matching `LHD_MANAGEMENT_TOKEN`.
+
+**Security:** The agent token is shared among all clients configured with it.
+This is not per-agent isolation. Do not grant the admin token to an MCP agent;
+keep the status API bound to loopback. MCP mutation tools are not advertised
+unless explicitly opted in.
