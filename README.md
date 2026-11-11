@@ -403,3 +403,24 @@ upstream chosen when they began. Both `/v1/status` and the TUI reflect runtime
 route additions and removals. Do not expose the status/management port through
 an external proxy or tunnel: a bearer token and loopback binding are not a
 substitute for an appropriately isolated management interface.
+
+### Live route management CLI (v0.6 development)
+
+The `route` command still starts the proxy when called without a subcommand.
+When LHD is already running, manage temporary routes through the authenticated
+loopback API instead:
+
+```bash
+export LHD_MANAGEMENT_TOKEN='your-strong-token' # same token used to start LHD
+clz-lhd route add demo.localhost http://127.0.0.1:5173
+clz-lhd route update demo.localhost http://127.0.0.1:5174
+clz-lhd routes --live
+clz-lhd route remove demo.localhost
+```
+
+Use `--status-port` if the management listener is not on port 9099. The `routes`
+command without `--live` continues to read the YAML configuration. Live
+mutations require the token in both the server and CLI environments; they do
+not modify YAML and disappear on restart. Errors from the management API,
+including authorization failures and configured-route conflicts, are shown
+without printing the token. See `unit-test.md` for verification steps.
