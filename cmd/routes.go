@@ -21,18 +21,12 @@ var routesCmd = &cobra.Command{
 			if err != nil {
 				return err
 			}
-			var result struct {
-				Routes []struct{ Host, Target, Source string } `json:"routes"`
+			summary, err := liveRoutesSummary(data)
+			if err != nil {
+				return err
 			}
-			if err := json.Unmarshal(data, &result); err != nil {
-				return fmt.Errorf("decode live routes: %w", err)
-			}
-			sort.Slice(result.Routes, func(i, j int) bool { return result.Routes[i].Host < result.Routes[j].Host })
-			fmt.Fprintln(cmd.OutOrStdout(), "HOST\tTARGET\tSOURCE")
-			for _, route := range result.Routes {
-				fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\n", route.Host, route.Target, route.Source)
-			}
-			return nil
+			_, err = fmt.Fprint(cmd.OutOrStdout(), summary)
+			return err
 		}
 		configPath, _ := cmd.Flags().GetString("config")
 		routes, err := config.LoadFile(configPath)
@@ -43,6 +37,28 @@ var routesCmd = &cobra.Command{
 		fmt.Fprint(cmd.OutOrStdout(), routesSummary(routes))
 		return nil
 	},
+}
+
+// liveRoutesSummary renders all routes returned by the management API,
+// including agent-owned routes. Missing owners are displayed as "-".
+func liveRoutesSummary(data []byte) (string, error) {
+	var result struct {
+		Routes []struct{ Host, Target, Source, Owner string } `json:"routes"`
+	}
+	if err := json.Unmarshal(data, &result); err != nil {
+		return "", fmt.Errorf("decode live routes: %w", err)
+	}
+	sort.Slice(result.Routes, func(i, j int) bool { return result.Routes[i].Host < result.Routes[j].Host })
+	var b strings.Builder
+	fmt.Fprintln(&b, "HOST\tTARGET\tSOURCE\tOWNER")
+	for _, route := range result.Routes {
+		owner := route.Owner
+		if owner == "" {
+			owner = "-"
+		}
+		fmt.Fprintf(&b, "%s\t%s\t%s\t%s\n", route.Host, route.Target, route.Source, owner)
+	}
+	return b.String(), nil
 }
 
 func routesSummary(routes []config.Route) string {

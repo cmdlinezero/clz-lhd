@@ -580,3 +580,13 @@ missing agent credentials or a token matching `LHD_MANAGEMENT_TOKEN`.
 This is not per-agent isolation. Do not grant the admin token to an MCP agent;
 keep the status API bound to loopback. MCP mutation tools are not advertised
 unless explicitly opted in.
+
+### MCP route visibility (Patch 46a)
+
+After starting LHD with `LHD_AGENT_TOKEN` and creating an agent route using
+`clz-lhd mcp --enable-agent-writes`, verify registration using both
+`curl -sS http://127.0.0.1:9099/v1/routes` and `clz-lhd routes --live`.
+The live CLI table now includes an `OWNER` column (`manual`, `worktree`,
+`agent`; `-` for YAML-configured routes). All registered routes appear
+regardless of owner. The automated MCP integration test exercises the real
+management handler and route registry, rather than a mocked success reply.

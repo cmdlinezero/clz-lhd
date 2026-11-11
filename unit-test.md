@@ -237,3 +237,30 @@ with `clz-lhd routes --live`. Confirm attempts to modify a `manual` or
 `worktree` route fail, as do non-loopback upstreams and invalid ports.
 Confirm the flag rejects a missing token and a token equal to the admin token.
 The token is shared, not a per-agent identity.
+
+## Patch 46a: MCP-to-registry integration and live route visibility
+
+Run `go test ./internal/mcp -run TestAgentMutationLifecycleThroughManagementAPI -count=1 -v`,
+`go test ./cmd -run TestLiveRoutesSummaryIncludesAllOwners -count=1 -v`,
+then `go test ./...`, `go test -race ./...`, `go vet ./...`,
+`go build ./...` and `git diff --check`. The integration test uses an
+in-process management API and real route registry: it checks MCP create,
+update and remove against `GET /v1/routes`, verifies owner/source/target,
+and tests cross-owner and invalid-token failures. It needs no running LHD.
+
+Manual smoke test (two terminals):
+
+1. Start `LHD_AGENT_TOKEN=<test-secret> ./clz-lhd up` in terminal A,
+   using your normal configuration and a distinct agent token.
+2. In terminal B, export the same `LHD_AGENT_TOKEN` and run the MCP
+   initialization + `lhd_create_route` JSON-RPC sequence shown in README.
+3. Confirm `curl -sS http://127.0.0.1:9099/v1/routes` includes
+   `mcp-test.localhost` with `source=runtime` and `owner=agent`.
+4. Confirm `./clz-lhd routes --live` shows that same route and its
+   `OWNER` column (`agent`), alongside configured routes (owner `-`).
+5. Use MCP `lhd_update_route` and `lhd_remove_route`, verifying both
+   the API and CLI after each call. Runtime routes disappear on restart.
+
+Note: earlier `routes --live` output lacking the agent route may have been
+captured before the API update became visible; the CLI previously did not
+filter by owner. This patch adds explicit owner display and regression tests.
