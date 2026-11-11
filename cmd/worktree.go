@@ -7,8 +7,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var worktreeCmd = &cobra.Command{Use: "worktree", Short: "Inspect Git worktree routing identity"}
+
 func init() {
-	worktreeCmd := &cobra.Command{Use: "worktree", Short: "Inspect Git worktree routing identity"}
 	worktreeCmd.AddCommand(&cobra.Command{
 		Use: "info", Short: "Show the proposed hostname for the current Git worktree",
 		Args: cobra.NoArgs,

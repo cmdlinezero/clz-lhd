@@ -63,3 +63,25 @@ worktree and differs between worktrees. In detached HEAD, the hostname should
 start with `detached-`. This command only prints a proposed hostname: it does
 not reserve ports, register routes, or start services. The suffix is a truncated
 path hash and does not constitute a globally guaranteed collision-free name.
+
+## Worktree port environment (Patch 38)
+
+Automated Go tests (no Node.js or Python required):
+
+```sh
+go test -count=1 ./internal/worktree ./cmd
+go test -race ./internal/worktree ./cmd
+```
+
+Manual smoke test (Python is an **optional** HTTP test-server utility):
+
+1. Start `clz-lhd up` with `LHD_MANAGEMENT_TOKEN` set.
+2. In a Git worktree with the same token, run `eval "$(clz-lhd worktree env)"`.
+3. Check `printf '%s %s\n' "$LHD_HOST" "$LHD_PORT"` and `clz-lhd routes --live`.
+4. Optionally start `python3 -m http.server "$LHD_PORT"` and request `curl "$LHD_URL"`.
+5. Repeat the environment command and confirm the same port is returned.
+6. Try a second worktree and confirm distinct hostnames and ports; restart LHD
+   and note that runtime allocations are not persistent.
+
+`eval` is appropriate only for trusted local CLI output. Port checks are
+best-effort, not exclusive leases; a separate process can claim a port later.

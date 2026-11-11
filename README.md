@@ -435,3 +435,29 @@ different hostnames. The hash is not a reservation or absolute collision
 guarantee. This command does **not** register a route, allocate a port, or
 launch a service; those capabilities are planned for subsequent patches.
 See [`unit-test.md`](unit-test.md) for worktree verification steps.
+
+### Worktree port environment (experimental, v0.6)
+
+With `clz-lhd up` running and `LHD_MANAGEMENT_TOKEN` configured in both
+shells, run this **from the current Git worktree**:
+
+```sh
+eval "$(clz-lhd worktree env)"
+printf 'Worktree URL: %s (port %s)\n' "$LHD_URL" "$LHD_PORT"
+```
+
+The command registers only the current worktree, then prints POSIX shell
+exports for `PORT`, `LHD_PORT`, `LHD_HOST`, and `LHD_URL`. It does **not** start
+an application or modify Git. To serve a test directory, optionally run
+`python3 -m http.server "$LHD_PORT"` and visit `$LHD_URL`; Python is not a
+runtime or test dependency of LHD. Applications may use `LHD_PORT` or `PORT`
+according to their own configuration.
+
+The allocation is stable while the runtime route exists, and it avoids ports
+in existing loopback routes and ports currently bound on loopback. Routes are
+in-memory and disappear when LHD restarts. Port probing is **not an exclusive
+reservation**: concurrent worktrees can race for the same free port, and a
+separate process can bind before the application starts. A configured route
+with the same hostname is never overwritten. Do not use `eval` with untrusted
+command output. Errors go to stderr; stdout contains shell exports only on
+success.
