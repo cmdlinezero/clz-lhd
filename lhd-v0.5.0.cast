@@ -1,4 +1,6 @@
 {"version":3,"term":{"cols":146,"rows":13,"type":"screen-256color","version":"tmux 3.7c","theme":{"fg":"#a7f2a2","bg":"#000000","palette":"#000000:#b93019:#52c037:#c7c53e:#0c24c0:#ba3ec1:#53c3c6:#c7c7c7:#686868:#f0776d:#8df77a:#fffc7f:#6a71f7:#f17ff9:#8efafe:#ffffff"}},"timestamp":1794092697,"env":{"SHELL":"/nix/store/5xfk6xkjqfn4cfn47ckm383g81lsfhca-bash-interactive-5.3p15/bin/bash"}}
+[0,"o","\u001b[2m┌─ TermCast MCP: LHD ─┐\u001b[0m\r\n"]
+[0,"o","\r\nTermCast MCP: Markdown to animated GIF\r\n"]
 [0.026, "o", "\u001b[?2004hlabdemo:clz-lhd rosera$ "]
 [1.774, "o", "."]
 [0.146, "o", "/"]

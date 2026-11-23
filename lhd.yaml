@@ -2,6 +2,7 @@
 routes:
   app.localhost: 3000
   api.localhost: 4000
+  ollama.localhost: 11434 
 
 tls:
   cert: .lhd/cert.pem
